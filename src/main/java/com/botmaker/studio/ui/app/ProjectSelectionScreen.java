@@ -41,10 +41,10 @@ public class ProjectSelectionScreen implements ProjectWindow {
 
     private final ProjectManager projectManager;
     private final ProjectCreator projectCreator;
-    private final JitPackSearch jitPackSearch = new JitPackSearch();
 
-    /** Convenience SDK version option that resolves to the newest concrete version on create. */
-    private static final String SDK_VERSION_LATEST = "latest";
+    // The JitPackSearch and the "latest" convenience option went with the SDK version combo on 2026-09-04:
+    // this screen no longer asks for any version, so it reaches no version index. ManageLibrariesDialog
+    // still has its own.
 
     private final GitHubClient gitHubClient = new GitHubClient();
     private final GitHubAuth gitHubAuth = new GitHubAuth();
@@ -458,23 +458,13 @@ public class ProjectSelectionScreen implements ProjectWindow {
         Label exampleLabel = new Label("Example: MyFirstProject");
         exampleLabel.setStyle("-fx-font-size: 10px; -fx-font-style: italic; -fx-text-fill: gray;");
 
-        // BotMaker SDK version picker (latest from JitPack, but selectable)
-        ComboBox<String> sdkVersionCombo = new ComboBox<>();
-        sdkVersionCombo.setEditable(true);
-        sdkVersionCombo.setMaxWidth(Double.MAX_VALUE);
-        // Render locally-installed dev builds with a " (local build)" hint, keeping the raw version as the value.
-        List<String> localVersions = MavenService.localSdkVersions();
-        decorateLocalBuilds(sdkVersionCombo, localVersions);
-        // Seed synchronously so the field is never empty and works offline: any local dev build first (so a
-        // dev-installed SDK is the default), else the fallback. The JitPack fetch then appends the real versions.
-        if (!localVersions.isEmpty()) {
-            sdkVersionCombo.getItems().addAll(localVersions);
-            sdkVersionCombo.setValue(localVersions.get(0));
-        } else {
-            sdkVersionCombo.getItems().add(MavenService.SDK_FALLBACK_VERSION);
-            sdkVersionCombo.setValue(MavenService.SDK_FALLBACK_VERSION);
-        }
-        loadSdkVersions(sdkVersionCombo, localVersions);
+        // There is no SDK version row here any more (2026-09-04), and its absence is the visible half of the
+        // blank-project split. A blank project names no plugin at all, so there is no version to pin; a
+        // template brings its author's own pom, versions and libraries, and keeping it is the point of a
+        // template being a real published bot. Neither shape has a question to ask, so the control, its
+        // JitPack fetch, the local-build decoration and the show/hide listener that toggled it against the
+        // template row are all gone. A project's SDK version is Project ▸ Manage Libraries' business, which
+        // is where every other version already lives.
 
         // The standard-resolution dropdown and its landscape/portrait toggle were here until 2026-09-01.
         // The size a project's pictures are captured at is the capturing plugin's setting, seeded by its own
@@ -496,27 +486,22 @@ public class ProjectSelectionScreen implements ProjectWindow {
         });
         loadTemplates(templateCombo);
 
-        // The SDK pin is a question about a blank project only. A template ships its own pom — versions,
-        // extra libraries and all — and keeping it is the point of a template being a real published bot
-        // rather than a set of holes; Project ▸ Manage Libraries changes it afterwards, as it does for any
-        // other project. So the row is hidden rather than disabled: a control that cannot apply is not a
-        // control the user should have to reason about.
-        Label sdkLabel = new Label("BotMaker SDK version:");
-        Label templateNote = new Label("This template brings its own SDK and libraries — "
-                + "change them later in Project ▸ Manage Libraries.");
-        templateNote.setStyle("-fx-font-size: 10px; -fx-text-fill: gray;");
-        templateNote.setWrapText(true);
-        templateCombo.valueProperty().addListener((o, was, now) -> {
-            boolean blank = now == null || now.isBlank();
-            sdkLabel.setVisible(blank);
-            sdkLabel.setManaged(blank);
-            sdkVersionCombo.setVisible(blank);
-            sdkVersionCombo.setManaged(blank);
-            templateNote.setVisible(!blank);
-            templateNote.setManaged(!blank);
-        });
-        templateNote.setVisible(false);
-        templateNote.setManaged(false);
+        // One line under the dropdown, saying what the chosen row actually gives you. It matters more than
+        // it looks: "Blank" now means a plain Java project with no bot API in it, and a user who picks it
+        // expecting the old behaviour would find an empty palette and no explanation.
+        Label startNote = new Label();
+        startNote.setStyle("-fx-font-size: 10px; -fx-text-fill: gray;");
+        startNote.setWrapText(true);
+        Runnable describeChoice = () -> {
+            TemplateChoice now = templateCombo.getValue();
+            startNote.setText(now == null || now.isBlank()
+                    ? "A plain Java project — a pom, a source folder and a main(). Add the BotMaker SDK, or "
+                            + "any other plugin, from Project ▸ Manage Plugins."
+                    : "This template brings its own SDK and libraries — change them later in "
+                            + "Project ▸ Manage Libraries.");
+        };
+        templateCombo.valueProperty().addListener((o, was, now) -> describeChoice.run());
+        describeChoice.run();
 
         content.getChildren().addAll(
                 new Label("Project Name:"),
@@ -528,9 +513,7 @@ public class ProjectSelectionScreen implements ProjectWindow {
                 exampleLabel,
                 new Label("Start from:"),
                 templateCombo,
-                templateNote,
-                sdkLabel,
-                sdkVersionCombo
+                startNote
         );
 
         dialog.getDialogPane().setContent(content);
@@ -550,18 +533,9 @@ public class ProjectSelectionScreen implements ProjectWindow {
 
         dialog.setResultConverter(dialogButton -> {
             if (dialogButton == createButtonType) {
-                String version = sdkVersionCombo.getValue() == null ? "" : sdkVersionCombo.getValue().trim();
-                // "latest" is a convenience option — resolve it to the newest concrete version already loaded
-                // in the combo (newest first), so the new project's pom is pinned to a real version.
-                if (SDK_VERSION_LATEST.equalsIgnoreCase(version)) {
-                    version = sdkVersionCombo.getItems().stream()
-                            .filter(v -> !SDK_VERSION_LATEST.equalsIgnoreCase(v))
-                            .findFirst()
-                            .orElse(MavenService.SDK_FALLBACK_VERSION);
-                }
                 TemplateChoice choice = templateCombo.getValue() == null
                         ? TemplateChoice.blank() : templateCombo.getValue();
-                return new CreateRequest(projectNameField.getText(), version, choice);
+                return new CreateRequest(projectNameField.getText(), choice);
             }
             return null;
         });
@@ -569,7 +543,7 @@ public class ProjectSelectionScreen implements ProjectWindow {
         Optional<CreateRequest> result = dialog.showAndWait();
         result.ifPresent(req -> {
             if (req.template().isBlank()) {
-                createProject(req.projectName(), req.sdkVersion());
+                createProject(req.projectName());
             } else {
                 createFromTemplate(req.projectName(), req.template().entry());
             }
@@ -614,37 +588,13 @@ public class ProjectSelectionScreen implements ProjectWindow {
         }));
     }
 
-    /** Replaces the combo's items with the local dev builds (top) + JitPack versions. Preselects a local
-     * build when present (dev testing is the intent), else the newest JitPack tag. Keeps the seeded values
-     * if the fetch returns nothing, e.g. offline. */
-    private void loadSdkVersions(ComboBox<String> combo, List<String> localVersions) {
-        jitPackSearch.fetchVersions(MavenService.SDK_GROUP_ID, MavenService.SDK_ARTIFACT_ID)
-                .thenAccept(versions -> Platform.runLater(() -> {
-                    if (versions.isEmpty()) return; // keep the pre-seeded local build / fallback
-                    List<String> items = new java.util.ArrayList<>(localVersions.size() + versions.size() + 1);
-                    items.addAll(localVersions); // local dev builds first, so they're one click away
-                    items.add(SDK_VERSION_LATEST);
-                    items.addAll(versions);
-                    combo.getItems().setAll(items);
-                    combo.setValue(localVersions.isEmpty() ? versions.get(0) : localVersions.get(0));
-                }));
-    }
-
-    /** Renders {@code localVersions} entries with a " (local build)" suffix in the dropdown while keeping the
-     * raw version string as the committed value (the generated pom needs the bare version). */
-    private static void decorateLocalBuilds(ComboBox<String> combo, List<String> localVersions) {
-        if (localVersions.isEmpty()) return;
-        combo.setCellFactory(list -> new javafx.scene.control.ListCell<>() {
-            @Override protected void updateItem(String item, boolean empty) {
-                super.updateItem(item, empty);
-                setText(empty || item == null ? null
-                        : localVersions.contains(item) ? item + "  (local build)" : item);
-            }
-        });
-    }
+    // loadSdkVersions and decorateLocalBuilds were here until 2026-09-04, with the SDK version combo they
+    // filled: a JitPack fetch, a "latest" convenience row and a cell factory badging ~/.m2 dev builds. New
+    // Project asks for no SDK version now, so they had nothing to fill. MavenService.localSdkVersions()
+    // survives with one caller, ManageLibrariesDialog, which is where a project's SDK version is chosen.
 
     /** Result of the create-project dialog. */
-    private record CreateRequest(String projectName, String sdkVersion, TemplateChoice template) {}
+    private record CreateRequest(String projectName, TemplateChoice template) {}
 
     private void showGallery() {
         GitHubGallery gallery = new GitHubGallery(gitHubClient, gitHubAuth);
@@ -676,10 +626,9 @@ public class ProjectSelectionScreen implements ProjectWindow {
      * having just said which one they wanted — and if the list was long or sorted by name, their new project
      * was somewhere off-screen. Creating a project <em>is</em> asking to work on it.
      */
-    private void createProject(String projectName, String sdkVersion) {
+    private void createProject(String projectName) {
         try {
-            projectCreator.createProject(projectName, sdkVersion,
-                    com.botmaker.studio.project.ProjectTemplate.EMPTY);
+            projectCreator.createProject(projectName, com.botmaker.studio.project.ProjectTemplate.EMPTY);
             onProjectSelected.open(projectName, false, true);
         } catch (Exception e) {
             // No version is a failure here any more: the floor went on 2026-08-25 with Studio's generation,

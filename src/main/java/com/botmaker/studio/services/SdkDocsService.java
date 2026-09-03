@@ -47,9 +47,16 @@ public final class SdkDocsService {
         return docs;
     }
 
-    /** Kick off a background (re)load if the declared SDK version differs from what's loaded. */
+    /**
+     * Kick off a background (re)load if the declared SDK version differs from what's loaded.
+     *
+     * <p>A project declaring <b>no SDK</b> reads as {@code ""} and resolves no sources jar, so the docs stay
+     * {@link SdkDocs#EMPTY} — which is already this service's answer whenever sources cannot be fetched, and
+     * therefore needs no branch of its own. It is only reached at all because a blank project may later
+     * install the SDK from Manage Plugins, at which point this refreshes like any other pin change.
+     */
     public void refresh() {
-        String version = MavenService.readSdkVersion(config.projectPath());
+        String version = MavenService.readSdkVersion(config.projectPath()).orElse("");
         if (version.equals(loadedVersion) && docs != SdkDocs.EMPTY) {
             return;
         }

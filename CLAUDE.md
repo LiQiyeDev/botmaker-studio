@@ -688,10 +688,44 @@ point of it.**
       **locked-parts diff** before writing to disk, since a project file has no locked parts.
     - `Audience` and `ComponentResolver` stay: audience still decides which *components* of a block are worth
       showing. What it no longer does is drop whole members from the tree.
-- **Studio generates bot projects that depend on the SDK.** `services/MavenService` writes each user
-  project's `pom.xml` pinning `com.github.LiQiyeDev:botmaker-sdk` (default `SDK_FALLBACK_VERSION`;
-  user-selectable in the project screen from JitPack's version list). That pin is independent of the version
-  Studio itself compiles against.
+- **Studio creates projects that name no plugin at all (2026-09-04).** `services/MavenService` writes
+  `BLANK_DEPENDENCIES` — `junit-jupiter`, and nothing else — plus the three repositories. Until this date
+  every project it created pinned `com.github.LiQiyeDev:botmaker-sdk` and eight further entries serving that
+  plugin's half of the jar, so *Blank* meant a bot project with a `System.out.println` in it and a user who
+  wanted a plain Java project could not have one. The platform rule reaches project creation here: the SDK is
+  one plugin among any number, and choosing it is the user's, one step away in **Project ▸ Manage Plugins**.
+  - **The consequence is large and is the point**: a blank project has no palette, no plugin toolbar buttons,
+    no pictures, no capture, no recorder and no pilot. That is what a project with no plugins installed looks
+    like, and it was already reachable — it is what an existing project whose pom does not name the SDK has
+    always done. What changed is that it is now the *starting* state.
+  - **`BOT_DEPENDENCIES` is kept and unused by creation.** It is the written statement of what a pom naming
+    the SDK plugin must carry — the five `provided` entries and why — which a template author needs and which
+    nothing else records. `ProjectRepair` writes it, and so does a test building a bot-shaped fixture.
+  - **`DEFAULT_GROUP_ARTIFACTS` is the union of both lists, and narrowing it would be a data-loss bug.** It
+    classifies the pom of *any* project, not only one created today: a bot made before this date, and every
+    project unpacked from a gallery template, carries the bot set. Left out of it, the SDK, the toolkit and
+    JavaFX read as **user libraries** — offered for deletion in Manage Libraries, then genuinely dropped by
+    `writeUserLibraries`, which keeps what `isDefaultDependency` recognises and discards the rest.
+    `MavenServiceSdkTest` holds both directions.
+  - **`readSdkVersion` answers `Optional`, and empty is ordinary.** It returned `SDK_FALLBACK_VERSION` for a
+    pom naming no SDK, which was harmless while every pom named one and became a lie the moment a blank
+    project could exist — its six readers resolve jars with that answer, offer upgrades against it and print
+    it in an about box. Each degrades now: no docs, no surface index, no version reported, a null pin passed
+    to `parameters(pin)` (which every plugin answers totally), and a blank passed back to
+    `writeUserLibraries`, which only ever re-versions a dependency the pom already declares — so editing a
+    blank project's libraries cannot make it acquire an SDK.
+  - **A repair asks the source, not the recorded template.** `ProjectRepair.usesSdk` walks the project's own
+    `.java` for `com.botmaker.sdk` and picks the pom shape from the answer. The recorded template cannot
+    separate the two cases — every blank project ever made records `EMPTY`, and the ones made before this
+    date pin the SDK — and the pom, which would have known, is the file that is missing. It is the one place
+    in Studio that spells a plugin's package prefix, which `ImportManager.repairSdkImports` was deleted for;
+    what makes it acceptable is that nothing is rewritten and no name is resolved, so being wrong costs one
+    visit to Manage Plugins rather than a mis-repaired file. The guess is biased that way deliberately.
+  - **New Project asks for no SDK version.** The combo, its JitPack fetch, the `(local build)` cell factory
+    and the show/hide listener that toggled it against the template row are gone: blank has nothing to pin
+    and a template brings its author's own pom. `MavenService.localSdkVersions()` survives with one caller,
+    `ManageLibrariesDialog`, which is where a project's SDK version is chosen. `SDK_FALLBACK_VERSION` also
+    survives — `release.sh` seds it on every `--sdk` release, and `ProjectRepair` still writes it.
 
 This Studio repo is a submodule of the **`botmaker` umbrella repo**, whose aggregator `pom.xml` builds nine
 modules in dependency order — `studio-api → plugin-toolkit → plugin-host → plugin-archetype → cli → shared →

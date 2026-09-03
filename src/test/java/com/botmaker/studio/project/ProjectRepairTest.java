@@ -150,8 +150,19 @@ class ProjectRepairTest {
                 .isEmpty());
     }
 
+    /**
+     * A project whose own code names the SDK gets the bot-shaped pom back.
+     *
+     * <p><b>The witness is the source, not the recorded template</b> (2026-09-04). Since a blank project
+     * names no plugin, rebuilding the bot pom unconditionally would hand an SDK to a project that never had
+     * one — and the recorded template cannot separate the two, because every blank project ever made records
+     * {@code EMPTY} and the ones made before that date do pin the SDK. The pom is the file that is missing,
+     * so what the user's Java imports is the only honest evidence left.
+     */
     @Test
-    void aDeletedBuildFileIsFoundAndRestored() throws IOException {
+    void aDeletedBuildFileIsRestoredWithTheSdkWhenTheCodeNamesIt() throws IOException {
+        Files.writeString(mainDir.resolve("Uses.java"),
+                "package com.mybot;\nimport com.botmaker.sdk.api.interaction.Mouse;\npublic class Uses {}\n");
         Path pom = config.projectPath().resolve("pom.xml");
         Files.delete(pom);
 
@@ -164,6 +175,29 @@ class ProjectRepairTest {
 
         assertEquals(List.of(pom), ProjectRepair.recover(config, missing));
         assertTrue(Files.readString(pom).contains("botmaker-sdk"));
+    }
+
+    /**
+     * And one whose code names nothing of ours gets the blank pom, with the reason saying why.
+     *
+     * <p>The fixture's own sources are a game bot written in <em>simple</em> names — {@code Bot.start},
+     * {@code FlowGraph.run} — with no import in sight, so this is not a contrived case: it is what the class
+     * has always laid down, and it is the direction the guess is deliberately biased towards. Being wrong
+     * here costs one visit to Manage Plugins; being wrong the other way adds nine dependencies nobody asked
+     * for.
+     */
+    @Test
+    void aDeletedBuildFileIsRestoredBlankWhenNothingNamesTheSdk() throws IOException {
+        Path pom = config.projectPath().resolve("pom.xml");
+        Files.delete(pom);
+
+        List<ProjectRepair.Missing> missing =
+                ProjectRepair.findMissing(config, ProjectTemplate.GAME_BOT, ActivitiesConfig.empty());
+        assertEquals(List.of("pom.xml"), missing.stream().map(ProjectRepair.Missing::fileName).toList());
+        assertTrue(missing.getFirst().reason().contains("no BotMaker SDK"), missing.getFirst().reason());
+
+        assertEquals(List.of(pom), ProjectRepair.recover(config, missing));
+        assertFalse(Files.readString(pom).contains("botmaker-sdk"));
     }
 
     @Test

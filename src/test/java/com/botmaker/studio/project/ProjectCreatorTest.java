@@ -25,7 +25,7 @@ class ProjectCreatorTest {
      * {@code pom.xml}, so every call needs one to be a realistic creation rather than a special case.
      */
     private static final java.util.function.Function<ProjectConfig, Map<String, String>> POM =
-            config -> Map.of("pom.xml", MavenService.pomXml(config, MavenService.SDK_FALLBACK_VERSION));
+            config -> Map.of("pom.xml", MavenService.blankPomXml(config));
 
     @Test
     void theChosenTemplateIsPersisted(@TempDir Path root) throws IOException {

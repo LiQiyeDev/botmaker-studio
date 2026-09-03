@@ -243,7 +243,37 @@ public final class MavenService {
     public static final String TOOLKIT_FALLBACK_VERSION = "0.0.2";
 
     /**
-     * Dependencies every generated project gets.
+     * The whole of a <b>blank</b> project's dependencies: a test framework, and nothing else.
+     *
+     * <p><b>A blank project names no plugin, and therefore has no bot API</b> (2026-09-04). Until then every
+     * project Studio created pinned {@code botmaker-sdk} plus the eight entries below, so "blank" meant a bot
+     * project with a {@code System.out.println} in it — and a user who wanted a plain Java project could not
+     * have one. The platform's own rule is that the SDK is one plugin among any number; a starting point that
+     * names it is a starting point that has chosen one, which is a choice belonging to the person starting.
+     *
+     * <p>So a blank project opens with <b>no palette, no plugin toolbar buttons, no pictures, no capture and
+     * no pilot</b>. That is not a degraded state to be minimised — it is what a project with no plugins
+     * installed looks like, and it is reachable in one step from **Project ▸ Manage Plugins…**, which
+     * installs the SDK as an ordinary dependency exactly as it installs anybody else's plugin. The richer
+     * starting point is a published bot carrying the {@code template} tag; see {@code TemplateProject}.
+     *
+     * <p>JUnit is here rather than in {@link #BOT_DEPENDENCIES} because it is the one entry that is not about
+     * BotMaker at all: it is what a Maven project is expected to come with, and a user who writes a test on
+     * day one should not have to add it. {@link #DEFAULT_REPOSITORIES} is unchanged for both shapes, so a
+     * blank project can <em>add</em> a BotMaker library later without anybody hand-editing a repository in.
+     */
+    private static final List<Dep> BLANK_DEPENDENCIES = List.of(
+            new Dep("org.junit.jupiter", "junit-jupiter", "5.9.3", "test")
+    );
+
+    /**
+     * What a pom that names the SDK plugin has to carry — <b>the list, kept, for a project that wants one</b>.
+     *
+     * <p>Nothing Studio creates writes this any more: a blank project takes {@link #BLANK_DEPENDENCIES} and a
+     * project made from a gallery template brings its author's own pom, versions and all. It stays because it
+     * is the written statement of the paragraph below, which a template author needs and which is not
+     * derivable from anywhere else, and because {@link #DEFAULT_GROUP_ARTIFACTS} must go on recognising every
+     * one of these in the pom of a project that already exists.
      *
      * <h2>Why five of them are {@code provided}, and what breaks without them</h2>
      *
@@ -267,7 +297,7 @@ public final class MavenService {
      * scope and needs nothing from this list — it is the SDK's double life as library-and-plugin that makes
      * it the exception.
      */
-    private static final List<Dep> DEFAULT_DEPENDENCIES = List.of(
+    private static final List<Dep> BOT_DEPENDENCIES = List.of(
             new Dep(SDK_GROUP_ID, SDK_ARTIFACT_ID, SDK_FALLBACK_VERSION, null),
             new Dep("net.java.dev.jna", "jna", "5.13.0", null),
             new Dep("net.java.dev.jna", "jna-platform", "5.13.0", null),
@@ -293,15 +323,24 @@ public final class MavenService {
     );
 
     /**
-     * {@code groupId:artifactId} of the built-in dependencies — these are never treated as user libraries.
+     * {@code groupId:artifactId} of every built-in dependency — these are never treated as user libraries.
      *
-     * <p>A "user library" is anything in the pom that is not on this list, so this set and
-     * {@link #writePom} must stay one list or the dialog offers to delete a dependency it cannot re-add.
-     * That is an argument for one owner, and the owner is whoever writes the pom — Studio, again.
+     * <p>A "user library" is anything in the pom that is not on this list, so this set and the pom writers
+     * must stay one list or the dialog offers to delete a dependency it cannot re-add. That is an argument
+     * for one owner, and the owner is whoever writes the pom — Studio, again.
+     *
+     * <p><b>It is the union of both lists, and narrowing it to the blank one would be a data-loss bug.</b>
+     * This classifies the dependencies of <em>any</em> project's pom, not only of one Studio wrote today: a
+     * bot created before 2026-09-04, and every project unpacked from a gallery template, carries the
+     * {@link #BOT_DEPENDENCIES} set. Left out of here, the SDK, the toolkit and JavaFX would read as user
+     * libraries — offered for deletion in Manage Libraries, and then genuinely dropped by
+     * {@link #writeUserLibraries}, which keeps what {@link #isDefaultDependency} recognises and discards the
+     * rest.
      */
-    private static final Set<String> DEFAULT_GROUP_ARTIFACTS = DEFAULT_DEPENDENCIES.stream()
-            .map(d -> d.groupId() + ":" + d.artifactId())
-            .collect(Collectors.toUnmodifiableSet());
+    private static final Set<String> DEFAULT_GROUP_ARTIFACTS =
+            java.util.stream.Stream.concat(BLANK_DEPENDENCIES.stream(), BOT_DEPENDENCIES.stream())
+                    .map(d -> d.groupId() + ":" + d.artifactId())
+                    .collect(Collectors.toUnmodifiableSet());
 
     private static boolean isDefaultDependency(Dependency d) {
         return DEFAULT_GROUP_ARTIFACTS.contains(d.getGroupId() + ":" + d.getArtifactId());
@@ -312,30 +351,47 @@ public final class MavenService {
     // =========================================================================
 
     /**
-     * Builds a {@code pom.xml} pinning the SDK to {@link #SDK_FALLBACK_VERSION}.
+     * A <b>blank</b> project's {@code pom.xml} as text — {@link #BLANK_DEPENDENCIES}, and no plugin named.
      *
-     * @see #writePom(Path, ProjectConfig, String)
+     * <p>This is what project creation writes. See {@link #botPomXml} for the shape a project that wants the
+     * SDK carries, and {@link #BLANK_DEPENDENCIES} for why creation no longer writes that one.
      */
-    public static void writePom(Path projectDir, ProjectConfig cfg) throws IOException {
-        writePom(projectDir, cfg, SDK_FALLBACK_VERSION);
+    public static String blankPomXml(ProjectConfig cfg) {
+        return pomXml(cfg, null);
+    }
+
+    /**
+     * A project's {@code pom.xml} as text, <b>naming the SDK plugin</b> and everything its plugin half needs
+     * — {@link #BOT_DEPENDENCIES}, with the SDK pinned to {@code sdkVersion} (blank →
+     * {@link #SDK_FALLBACK_VERSION}).
+     *
+     * <p>Nothing creates a project this way since 2026-09-04. It is what {@code ProjectRepair} rebuilds a
+     * missing pom as for a project that already had one, and what a test builds a bot-shaped fixture with.
+     */
+    public static String botPomXml(ProjectConfig cfg, String sdkVersion) {
+        return pomXml(cfg, sdkVersion == null || sdkVersion.isBlank()
+                ? SDK_FALLBACK_VERSION : sdkVersion.trim());
     }
 
     /**
      * Builds a {@code pom.xml} for the given project using the Maven Model API and returns it as text. The
      * model is assembled as an object graph and serialized with {@link MavenXpp3Writer} — no XML string
-     * templating, so a project name with an {@code &} in it cannot produce a pom that does not parse. The
-     * BotMaker SDK is pinned to {@code sdkVersion} (blank → {@link #SDK_FALLBACK_VERSION}); all other
-     * defaults use their built-in versions.
+     * templating, so a project name with an {@code &} in it cannot produce a pom that does not parse.
+     *
+     * <p><b>{@code sdkVersion} is {@code null} for a blank project</b>, which is the one thing this method
+     * branches on: it selects {@link #BLANK_DEPENDENCIES} over {@link #BOT_DEPENDENCIES}. Null rather than
+     * blank, because blank already means "pin the fallback" to every caller that ever passed a user's typed
+     * version through, and a project with no SDK at all is a different statement from one whose version was
+     * left empty. Both public spellings above say which they mean in their names.
      *
      * <p>Text rather than a write, because project <em>creation</em> does not write this file itself: it
      * hands the text to {@code Authoring.createProject}, which commits it in the same all-or-none pass as
      * the files the SDK owns. Composing it here and committing it there is what keeps both halves — Studio
-     * knows the whole dependency set (the SDK is only its default plugin), and a failed creation still
-     * leaves nothing behind.
+     * knows the whole dependency set (the SDK is only one plugin), and a failed creation still leaves
+     * nothing behind.
      */
-    public static String pomXml(ProjectConfig cfg, String sdkVersion) {
-        String resolvedSdkVersion = (sdkVersion == null || sdkVersion.isBlank())
-                ? SDK_FALLBACK_VERSION : sdkVersion.trim();
+    private static String pomXml(ProjectConfig cfg, String resolvedSdkVersion) {
+        List<Dep> dependencies = resolvedSdkVersion == null ? BLANK_DEPENDENCIES : BOT_DEPENDENCIES;
         Model model = new Model();
         model.setModelVersion("4.0.0");
         model.setGroupId("com." + cfg.packageName());
@@ -355,7 +411,7 @@ public final class MavenService {
             model.addRepository(repo);
         });
 
-        for (Dep d : DEFAULT_DEPENDENCIES) {
+        for (Dep d : dependencies) {
             Dependency dep = new Dependency();
             dep.setGroupId(d.groupId());
             dep.setArtifactId(d.artifactId());
@@ -377,15 +433,25 @@ public final class MavenService {
     }
 
     /**
-     * Writes {@link #pomXml} to {@code projectDir/pom.xml}.
+     * Writes a <b>bot-shaped</b> {@code pom.xml} — {@link #botPomXml} — to {@code projectDir/pom.xml}.
      *
      * <p>This is the <em>repair</em> path — restoring a build file somebody deleted out of an otherwise
      * intact project, where re-creating the project would (correctly) refuse. Creation goes through
-     * {@code pomXml} instead, so that its write is part of one atomic commit.
+     * {@link #blankPomXml} instead, so that its write is part of one atomic commit.
+     *
+     * <p><b>The caller chooses the shape, and must.</b> A repair that always wrote this one would hand an
+     * SDK to a blank project that never had one — see {@link #writeBlankPom} and {@code ProjectRepair},
+     * which reads {@code settings.json}'s recorded template to decide.
      */
     public static void writePom(Path projectDir, ProjectConfig cfg, String sdkVersion) throws IOException {
         Files.createDirectories(projectDir);
-        Files.writeString(projectDir.resolve("pom.xml"), pomXml(cfg, sdkVersion));
+        Files.writeString(projectDir.resolve("pom.xml"), botPomXml(cfg, sdkVersion));
+    }
+
+    /** Writes a <b>blank</b> {@code pom.xml} — {@link #blankPomXml} — to {@code projectDir/pom.xml}. */
+    public static void writeBlankPom(Path projectDir, ProjectConfig cfg) throws IOException {
+        Files.createDirectories(projectDir);
+        Files.writeString(projectDir.resolve("pom.xml"), blankPomXml(cfg));
     }
 
     // =========================================================================
@@ -574,18 +640,25 @@ public final class MavenService {
     }
 
     /**
-     * Reads the BotMaker SDK version currently declared in {@code projectDir/pom.xml}, or
-     * {@link #SDK_FALLBACK_VERSION} if the pom is missing or does not declare the SDK.
+     * The BotMaker SDK version {@code projectDir/pom.xml} declares — <b>empty when it declares none</b>.
+     *
+     * <p>It answered {@link #SDK_FALLBACK_VERSION} for a pom naming no SDK until 2026-09-04, which was
+     * harmless while every pom Studio wrote named one and became a lie the moment a blank project could
+     * exist. The readers of this answer resolve jars with it, offer upgrades against it and print it in an
+     * about box; every one of them would have been describing a dependency the project does not have.
+     *
+     * <p><b>Empty is not an error.</b> A project with no SDK is an ordinary project — it is what New Project
+     * now creates — so each caller degrades rather than refusing: no docs, no surface index, no upgrade
+     * offered, no version reported.
      */
-    public static String readSdkVersion(Path projectDir) {
+    public static Optional<String> readSdkVersion(Path projectDir) {
         Model model = readModel(projectDir);
-        if (model == null) return SDK_FALLBACK_VERSION;
+        if (model == null) return Optional.empty();
         return model.getDependencies().stream()
                 .filter(d -> SDK_GROUP_ID.equals(d.getGroupId()) && SDK_ARTIFACT_ID.equals(d.getArtifactId()))
                 .map(Dependency::getVersion)
                 .filter(v -> v != null && !v.isBlank())
-                .findFirst()
-                .orElse(SDK_FALLBACK_VERSION);
+                .findFirst();
     }
 
     /**
@@ -593,11 +666,11 @@ public final class MavenService {
      * pom (downloading from JitPack if not already cached in {@code ~/.m2}), returning its local path.
      * The Studio does not compile against the SDK, but the sources jar carries the API Javadoc that
      * {@code index/SdkDocsParser} reads to describe methods/parameters (see {@code services/SdkDocsService}).
-     * Best-effort: returns empty when the pom is missing, the artifact can't be resolved, or offline.
-     * May block on the network — call off the FX thread.
+     * Best-effort: returns empty when the pom is missing, <b>declares no SDK</b>, the artifact can't be
+     * resolved, or offline. May block on the network — call off the FX thread.
      */
     public static Optional<Path> resolveSdkSourcesJar(Path projectDir) {
-        return resolveSdkArtifact(projectDir, readSdkVersion(projectDir), "sources");
+        return resolveSdkArtifact(projectDir, readSdkVersion(projectDir).orElse(""), "sources");
     }
 
     /**
@@ -617,7 +690,7 @@ public final class MavenService {
      * chosen SDK contains <em>before</em> a pom exists to read repositories from.
      *
      * <p>Resolving against an empty model is not a compromise here: {@link #buildRemoteRepositories} starts
-     * from {@link #DEFAULT_REPOSITORIES}, and those are exactly the repositories {@link #pomXml} is about to
+     * from {@link #DEFAULT_REPOSITORIES}, and those are exactly the repositories {@link #blankPomXml} is about to
      * declare. The only thing a project pom adds is a repository the <em>user</em> put there, which by
      * definition a project that does not exist yet has none of.
      */
@@ -665,18 +738,24 @@ public final class MavenService {
     }
 
     /**
-     * Replaces the user-added libraries with {@code libs}, leaving the SDK version unchanged.
+     * Replaces the user-added libraries with {@code libs}, leaving the SDK version unchanged — and adding
+     * none to a project that declares no SDK.
      *
      * @see #writeUserLibraries(Path, List, String)
      */
     public static void writeUserLibraries(Path projectDir, List<UserLibrary> libs) throws IOException {
-        writeUserLibraries(projectDir, libs, readSdkVersion(projectDir));
+        writeUserLibraries(projectDir, libs, readSdkVersion(projectDir).orElse(""));
     }
 
     /**
      * Replaces the user-added libraries in {@code projectDir/pom.xml} with {@code libs} and pins the
      * BotMaker SDK to {@code sdkVersion}, leaving the other built-in dependencies, repositories and
      * properties untouched. The pom is read, mutated and written back in place (no regeneration).
+     *
+     * <p><b>A blank {@code sdkVersion} pins nothing, and does not add the SDK.</b>
+     * {@link #setManagedDependencyVersion} only ever edits a dependency that is already declared, so a blank
+     * project keeps naming no plugin however often its libraries are edited — which is what makes
+     * {@code LibraryService} usable on one at all.
      */
     public static void writeUserLibraries(Path projectDir, List<UserLibrary> libs, String sdkVersion)
             throws IOException {

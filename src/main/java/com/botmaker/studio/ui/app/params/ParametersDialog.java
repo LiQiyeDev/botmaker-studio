@@ -488,14 +488,17 @@ public final class ParametersDialog {
     }
 
     /**
-     * The SDK version the open project pins, or null when it cannot be read.
+     * The SDK version the open project pins, or null when it declares none or cannot be read.
      *
      * <p>Read from the pom each time rather than cached: the *Upgrade SDK* dialog moves it while this window
      * can be open, and a stale pin would draw the previous version's sections.
+     *
+     * <p>Null is passed straight to {@code parameters(pin)}, which every plugin answers totally — so a
+     * project with no SDK simply has no section from it, which is the truth rather than a degradation.
      */
     private String sdkPin() {
         try {
-            return MavenService.readSdkVersion(config.projectPath());
+            return MavenService.readSdkVersion(config.projectPath()).orElse(null);
         } catch (RuntimeException e) {
             return null;
         }

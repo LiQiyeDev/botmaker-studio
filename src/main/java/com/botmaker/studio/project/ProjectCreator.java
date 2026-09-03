@@ -54,24 +54,24 @@ import static com.botmaker.studio.config.Constants.PROJECTS_ROOT;
 public class ProjectCreator {
 
     public void createProject(String projectName) throws IOException {
-        createProject(projectName, "");
-    }
-
-    public void createProject(String projectName, String sdkVersion) throws IOException {
-        createProject(projectName, sdkVersion, ProjectTemplate.EMPTY);
+        createProject(projectName, ProjectTemplate.EMPTY);
     }
 
     /**
-     * Creates a new project, pinning the BotMaker SDK to {@code sdkVersion}
-     * (blank → {@link MavenService#SDK_FALLBACK_VERSION}). {@code template} chooses the starting source
-     * files.
+     * Creates a new project. {@code template} records how it was started.
+     *
+     * <p><b>It names no plugin, and takes no SDK version (2026-09-04).</b> The pom is
+     * {@link MavenService#blankPomXml}, whose whole dependency list is a test framework. Every project
+     * created here used to pin {@code botmaker-sdk} plus eight entries serving its plugin half, which made
+     * "blank" a bot project with a {@code System.out.println} in it and left a user who wanted a plain Java
+     * project without one. The richer starting point is a published bot carrying the {@code template} tag —
+     * {@link #createFromTemplate} — and the SDK is one install away in Manage Plugins.
      *
      * <p><b>No capture resolution is chosen here (2026-09-01).</b> The size templates are captured at is
      * the capturing plugin's, seeded by its own toolbar item the first time a picture is taken; a project
      * is created without one and {@code capture.width}/{@code capture.height} stay absent until then.
      */
-    public void createProject(String projectName, String sdkVersion,
-                              ProjectTemplate template) throws IOException {
+    public void createProject(String projectName, ProjectTemplate template) throws IOException {
         validateProjectName(projectName);
 
         ProjectConfig cfg = ProjectConfig.forProject(projectName, PROJECTS_ROOT);
@@ -98,7 +98,7 @@ public class ProjectCreator {
             //    hand.
             System.out.println("1. Creating the project...");
             Map<String, String> ourFiles = new LinkedHashMap<>(StarterSources.of(cfg));
-            ourFiles.put("pom.xml", MavenService.pomXml(cfg, effectiveSdkVersion(sdkVersion)));
+            ourFiles.put("pom.xml", MavenService.blankPomXml(cfg));
             writeProject(cfg, template, ourFiles);
 
             // 2. Seed settings.json (the chosen template). Studio's own file: no bot reads it, and it
@@ -207,12 +207,6 @@ public class ProjectCreator {
         } catch (IOException ignored) {
             // Same.
         }
-    }
-
-    /** What a blank pin means — the version a new pom is written with. */
-    private static String effectiveSdkVersion(String sdkVersion) {
-        return sdkVersion == null || sdkVersion.isBlank()
-                ? MavenService.SDK_FALLBACK_VERSION : sdkVersion.trim();
     }
 
     /**

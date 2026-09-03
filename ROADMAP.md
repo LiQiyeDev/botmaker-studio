@@ -6,6 +6,41 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-09-04 — a blank project names no plugin.** `MavenService.DEFAULT_DEPENDENCIES` splits into
+  `BLANK_DEPENDENCIES` (junit-jupiter, and nothing else) and `BOT_DEPENDENCIES` (the nine, kept and unused by
+  creation); `blankPomXml`/`botPomXml`/`writeBlankPom` name which shape they mean. Until now *Blank* meant a
+  bot project with a `System.out.println` in it — the SDK plus eight entries serving its plugin half — and a
+  user who wanted a plain Java project could not have one.
+  - **`DEFAULT_GROUP_ARTIFACTS` stays the union, and that is the hazard of the change.** It classifies *any*
+    project's pom: narrowed to the blank list, an existing bot's SDK, toolkit and JavaFX would read as user
+    libraries, be offered for deletion, and be dropped for real by `writeUserLibraries`.
+    `MavenServiceSdkTest` holds it from both sides (a bot pom has zero user libraries; editing libraries on
+    one preserves every built-in), plus that editing a blank project's libraries does not give it an SDK.
+  - **`readSdkVersion` is `Optional<String>` and its six readers each take the absent case.**
+    `SdkSurfaceService` (fails open, as an unrecognised pin already did), `SdkDocsService` (no sources jar,
+    `SdkDocs.EMPTY` — already its answer for unresolvable sources), `LibraryService.currentSdkVersion` (`""`,
+    which `writeUserLibraries` treats as *pin nothing*), `VersionInfo` (`—` rather than naming a dependency
+    the project has not got), `ParametersDialog` (null pin, and `parameters(pin)` is total). The old answer —
+    `SDK_FALLBACK_VERSION` for a pom naming no SDK — was harmless while every pom named one.
+  - **`ProjectRepair` asks the source.** New `usesSdk` walks the project's `.java` for `com.botmaker.sdk` and
+    picks the pom shape. The recorded template cannot separate the cases (every blank project records
+    `EMPTY`; the pre-2026-09-04 ones pin the SDK) and the pom that would have known is the missing file. It
+    spells one plugin's package prefix — the thing `ImportManager.repairSdkImports` was deleted for — and is
+    acceptable only because nothing is rewritten: being wrong costs a visit to Manage Plugins, so the guess
+    is biased that way. `ProjectRepairTest` covers both arms.
+  - **New Project loses the SDK row**: the combo, `loadSdkVersions`, `decorateLocalBuilds`, the `latest`
+    convenience option, this screen's `JitPackSearch` and `CreateRequest.sdkVersion`. In its place, one line
+    under *Start from* describing what the chosen row gives you — because "Blank" now means something
+    materially different and a user picking it would otherwise meet an empty palette with no explanation.
+    `localSdkVersions()` survives with one caller, `ManageLibrariesDialog`.
+  - **`StarterSources`' comment stopped naming types the project cannot see.** It advertised `ImageFinder`,
+    `Mouse`, `Wait`, `Bot.start` and `FlowGraph.run`; none resolve in a pom naming no plugin, and
+    documentation pointing at absent classes reads as a broken install. It names Manage Plugins instead.
+  - Suite: 1001 → 1007 tests, and the set of failing tests is **identical** before and after (86 either way,
+    all pre-existing, several flaky on the JavaFX toolkit).
+  - Still owed by the next phase: the bot template itself, as a published gallery bot. Until it exists New
+    Project offers blank alone — which is the state today, so nothing regresses while it is pending.
+
 - **2026-09-02 — JDK 25 LTS and JavaFX 25.0.4.** `pom.xml` (`maven.compiler.release` 25 in place of
   `source`/`target`, `javafx.version` → 25.0.4), both `java-version` steps in `ci.yml` including the
   per-OS `package` matrix, and `README.md`'s build requirement. jpackage bundles whatever JDK builds the

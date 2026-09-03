@@ -99,7 +99,11 @@ public final class SdkSurfaceService {
      * whole, so a reader sees either the old map or the new one, never a half-built one.
      */
     public void refresh() {
-        this.sdkVersion = MavenService.readSdkVersion(config.projectPath());
+        // A project that declares no SDK reads as "", which PluginHost.catalogFor treats as an unrecognised
+        // pin — no catalog, so nothing is curated and the menus widen. That is the same fail-open a pin
+        // released before catalogs existed gets, and it is right for the same reason: with no plugin bound
+        // there is nothing to offer anyway, and narrowing on a version nobody declared would be a guess.
+        this.sdkVersion = MavenService.readSdkVersion(config.projectPath()).orElse("");
         Map<String, TypeFacts> built = new HashMap<>();
         for (ClassInfo ci : typeIndex.getAllTypes()) {
             built.put(ci.getSimpleName(), factsOf(ci));

@@ -23,6 +23,12 @@ import java.util.Map;
  * teaching {@code BotMaker.print} for what the JDK already does would be spending a user's first impression
  * on a BotMaker spelling of a Java call.
  *
+ * <p><b>And since 2026-09-04 "imports nothing" is a property of the pom as well as of this file.</b> A blank
+ * project's {@code pom.xml} names no plugin — see {@code MavenService.BLANK_DEPENDENCIES} — so there is no
+ * BotMaker API on its classpath to import even if this file wanted to. That is the platform rule reaching
+ * project creation: the SDK is one plugin among any number, and choosing it is the user's to make, one step
+ * away in <b>Project ▸ Manage Plugins</b>.
+ *
  * <p><b>Nothing here is a template in the old sense.</b> There are no holes, no fences and no manifest;
  * nothing parses this text back, nothing reconciles it, and no repair puts it back if it is deleted. It is
  * the text a project happens to begin with, and every line of it is the user's from the moment it lands.
@@ -48,21 +54,30 @@ public final class StarterSources {
         return Map.of(path, blank(pkg, name));
     }
 
-    /** A bare {@code main} that prints a line. Everything after it is the user's to invent. */
+    /**
+     * A bare {@code main} that prints a line. Everything after it is the user's to invent.
+     *
+     * <p><b>The comment names no BotMaker type, and since 2026-09-04 it could not.</b> It used to tell the
+     * reader about {@code ImageFinder}, {@code Mouse}, {@code Wait}, {@code Bot.start} and
+     * {@code FlowGraph.run} — none of which resolve here, because a blank project's pom names no plugin.
+     * Documentation that points at classes the project cannot see is worse than none: it reads as the
+     * install being broken. What it says instead is the one thing that is both true and actionable, which
+     * is where the API comes from.
+     */
     private static String blank(String pkg, String name) {
         return """
                 package %1$s;
 
                 /**
-                 * Your bot.
+                 * Your project.
                  *
                  * <p>BotMaker wrote this file once, when the project was created, and will never touch it
                  * again. Every line of it is yours — rename it, split it up, throw it away.
                  *
-                 * <p>The BotMaker API is static methods you call: {@code ImageFinder}, {@code Mouse},
-                 * {@code Wait}, {@code Bot.start(…)} to run supervised, {@code FlowGraph.run(…)} to walk the
-                 * Activity Flow you draw in the editor. Start typing in main() and the palette will offer
-                 * them.
+                 * <p>This is a plain Java project: it has a pom, a source folder and this main(). To make it
+                 * a bot, add the BotMaker SDK from <b>Project ▸ Manage Plugins</b> — it is a plugin like any
+                 * other, and installing it brings the palette, the pictures, the capture tools and the rest.
+                 * Or start from a published template instead, which arrives with all of that already pinned.
                  */
                 public class %2$s {
 

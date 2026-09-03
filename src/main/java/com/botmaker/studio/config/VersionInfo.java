@@ -31,12 +31,16 @@ public final class VersionInfo {
 
     /**
      * The SDK version the open project's pom pins, flagged {@code (local build)} when it matches a locally
-     * dev-installed snapshot ({@link MavenService#localSdkVersions()}). {@code null} projectDir → {@code —}.
+     * dev-installed snapshot ({@link MavenService#localSdkVersions()}). {@code null} projectDir → {@code —},
+     * and so does a project that <b>declares no SDK</b>, which since 2026-09-04 is what a blank project is.
+     * Reporting {@code SDK_FALLBACK_VERSION} there — what this did until the same day — named a dependency
+     * the project does not have, in the one place a user goes to find out what they are running.
      */
     public static String sdkForProject(Path projectDir) {
         if (projectDir == null) return "—";
-        String v = MavenService.readSdkVersion(projectDir);
-        return MavenService.localSdkVersions().contains(v) ? v + " (local build)" : v;
+        return MavenService.readSdkVersion(projectDir)
+                .map(v -> MavenService.localSdkVersions().contains(v) ? v + " (local build)" : v)
+                .orElse("—");
     }
 
     /** One-line banner for stdout. {@code projectDir} may be {@code null} when no project is open yet. */

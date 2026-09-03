@@ -115,6 +115,38 @@ public final class ProjectRepair {
     }
 
     /**
+     * Whether any of the project's own Java names {@code com.botmaker.sdk} — the only witness left, once a
+     * pom is missing, to whether this project ever had the SDK.
+     *
+     * <p>It is the one place in Studio that spells a plugin's package prefix, and that is worth being
+     * uncomfortable about: {@code ImportManager.repairSdkImports} did the same and was deleted on 2026-09-02
+     * for exactly it, because a repair keyed to one plugin's name gives a second plugin nothing. The
+     * difference that makes this acceptable is that the answer is not a *behaviour* — nothing is rewritten
+     * and no name is resolved. It picks between two pom shapes, and being wrong costs a visit to Manage
+     * Plugins. If a second plugin ever ships, the honest generalisation is to ask each bound plugin whether
+     * the source names it; there is nothing to ask today, since with no pom there is no classpath and so no
+     * plugin bound at all.
+     *
+     * <p>Best-effort in every direction: an unreadable file, an unwalkable tree or no sources at all answer
+     * <em>no</em>, which is the direction that adds nothing to somebody's build.
+     */
+    static boolean usesSdk(ProjectConfig config) {
+        Path sources = config.projectPath().resolve("src").resolve("main").resolve("java");
+        if (!Files.isDirectory(sources)) return false;
+        try (var walk = Files.walk(sources)) {
+            return walk.filter(p -> p.getFileName().toString().endsWith(".java")).anyMatch(p -> {
+                try {
+                    return Files.readString(p).contains("com.botmaker.sdk");
+                } catch (IOException | RuntimeException unreadable) {
+                    return false;
+                }
+            });
+        } catch (IOException | RuntimeException unwalkable) {
+            return false;
+        }
+    }
+
+    /**
      * Everything that is missing and recoverable, in a stable order. Empty when the project is intact.
      *
      * <p>{@code template} says which scaffold the project is supposed to have; a null template falls back to
@@ -191,9 +223,25 @@ public final class ProjectRepair {
         List<Missing> missing = new ArrayList<>();
         Path pom = config.projectPath().resolve("pom.xml");
         if (!Files.exists(pom)) {
-            missing.add(new Missing(pom, target -> MavenService.writePom(config.projectPath(), config,
-                    MavenService.SDK_FALLBACK_VERSION),
-                    "build file (SDK pin reset to " + MavenService.SDK_FALLBACK_VERSION + ")"));
+            // Which shape to rebuild is asked of the SOURCE, not of the recorded template. Since 2026-09-04
+            // a blank project names no plugin, so writing the bot pom unconditionally would hand an SDK to a
+            // project that never had one — but `recorded` cannot tell the two apart either: every blank
+            // project ever made records EMPTY, and the ones made before that date do pin the SDK. The pom
+            // itself is the thing that is missing, so the only honest witness left is whether the user's own
+            // code names the SDK. Guessing wrong in the safe direction costs one visit to Manage Plugins;
+            // guessing wrong in the other direction adds nine dependencies nobody asked for.
+            boolean bot = usesSdk(config);
+            missing.add(new Missing(pom,
+                    target -> {
+                        if (bot) {
+                            MavenService.writePom(config.projectPath(), config,
+                                    MavenService.SDK_FALLBACK_VERSION);
+                        } else {
+                            MavenService.writeBlankPom(config.projectPath(), config);
+                        }
+                    },
+                    bot ? "build file (SDK pin reset to " + MavenService.SDK_FALLBACK_VERSION + ")"
+                        : "build file (no BotMaker SDK — this project's code names none)"));
         }
 
         Path properties = config.resourcesRoot().resolve(ProjectProperties.FILE_NAME);

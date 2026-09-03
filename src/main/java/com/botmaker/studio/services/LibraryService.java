@@ -41,9 +41,17 @@ public final class LibraryService {
         return MavenService.readUserLibraries(config.projectPath());
     }
 
-    /** The BotMaker SDK version currently declared in the project pom. */
+    /**
+     * The BotMaker SDK version currently declared in the project pom, or {@code ""} when it declares none.
+     *
+     * <p>Blank rather than {@code Optional} because of where it goes: straight back into
+     * {@link #updateLibraries}, whose {@code sdkVersion} parameter has always treated blank as <i>pin
+     * nothing</i>. A blank project therefore edits its libraries without acquiring an SDK, which is the
+     * behaviour that matters here and which the pom writer enforces rather than trusting — it only ever
+     * re-versions a dependency the pom already declares.
+     */
     public String currentSdkVersion() {
-        return MavenService.readSdkVersion(config.projectPath());
+        return MavenService.readSdkVersion(config.projectPath()).orElse("");
     }
 
     /**
