@@ -10,6 +10,15 @@ date it.
 
 Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
+## [Unreleased]
+
+### Fixed
+
+- **A new project pins an SDK that exists — third attempt.** `1.0.35` pointed at SDK `1.1.4`, whose own
+  JitPack build then failed for a third distinct reason: an upstream module pinned a Maven plugin whose
+  declared prerequisite is newer than the Maven JitPack runs, so it published nothing. This release points
+  the constant at a tag that resolves. Nothing in Studio itself changed.
+
 ## [1.0.35] — 2026-09-04
 
 ### Fixed
