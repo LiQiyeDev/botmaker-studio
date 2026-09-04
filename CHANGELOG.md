@@ -10,6 +10,15 @@ date it.
 
 Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
+## [Unreleased]
+
+### Changed
+
+- **A newly created project pins SDK 1.1.6**, which is the first release whose plugin half loads when the SDK
+  is added to a project as a dependency — the arrangement every project has used since Studio stopped
+  bundling a plugin. Nothing in Studio itself changed; see `botmaker-sdk`'s changelog for what the empty
+  palette was.
+
 ## [1.0.36] — 2026-09-05
 
 ### Fixed
