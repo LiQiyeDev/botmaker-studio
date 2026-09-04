@@ -83,7 +83,7 @@ public final class MavenService {
      * make that bump silently stop working. What a <em>freshly created</em> pom pins is also a separate
      * question from what this build of the SDK is.
      */
-    public static final String SDK_FALLBACK_VERSION = "1.1.2";
+    public static final String SDK_FALLBACK_VERSION = "1.1.3";
 
     // There is no MIN_SDK_VERSION any more, and its absence is deliberate (2026-08-25).
     //
@@ -240,7 +240,7 @@ public final class MavenService {
      * deliberately <b>not</b> derived from anything: a computed value would make that sed silently stop
      * working, which is the same reason the SDK fallback is a literal.
      */
-    public static final String TOOLKIT_FALLBACK_VERSION = "0.0.2";
+    public static final String TOOLKIT_FALLBACK_VERSION = "0.0.3";
 
     /**
      * The whole of a <b>blank</b> project's dependencies: a test framework, and nothing else.
