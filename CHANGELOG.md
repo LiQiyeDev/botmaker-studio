@@ -10,6 +10,20 @@ date it.
 
 Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
+## [Unreleased]
+
+### Fixed
+
+- **A new project pins an SDK and a toolkit that can actually be downloaded.** Nothing in Studio itself
+  changed. What changed is upstream: every BotMaker library published since 2026-09-02 was unbuildable on
+  JitPack (their poms did not pin `maven-compiler-plugin`, so JitPack's default 3.1 built them with
+  `source 5`), so a bot created by Studio 1.0.33 pinned an SDK that failed to resolve on the first build.
+  This release moves the two version constants a generated pom carries to tags that exist.
+
+- **Installing the SDK through *Project ▸ Manage Plugins* gives you a working palette.** Also an upstream
+  fix — the SDK declared its widget toolkit `optional`, so a project that added the SDK got the plugin
+  without the classes it extends and Studio loaded no plugin at all. See the SDK's own changelog.
+
 ## [1.0.33] — 2026-09-02
 
 - **Studio runs on Java 25 (LTS) and JavaFX 25.0.4.** If you installed Studio from a release, nothing is
