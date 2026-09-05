@@ -54,7 +54,15 @@ public class ToolbarManager {
     /** Persists the debug-output toggle to the project; wired by {@link UIManager}. */
     private Consumer<Boolean> onToggleDebugOutput;
     /** The debug-output toggle's initial (persisted) state — read by {@link UIManager} before building the bar. */
-    private boolean debugOutputInitial = true;
+    /**
+     * The debug toggle's current position — seeded from the project and <b>kept</b>, not merely seeded.
+     *
+     * <p>It held only the initial value until 2026-09-05, which was true while this bar was built exactly
+     * once per window. It is rebuilt now whenever the project's plugins change, and a seed-only field would
+     * put the toggle back where the project opened while the persisted value is wherever the user last left
+     * it — the button and the setting silently disagreeing.
+     */
+    private boolean debugOutputOn = true;
     /** Opens the Input &amp; Clicks dialog over the project's settings; wired by {@link UIManager}. */
     private Runnable onConfigureInput;
     /** Opens the program-shape overlay authoring editor; wired by {@link UIManager}. */
@@ -145,7 +153,7 @@ public class ToolbarManager {
      * toggle's starting position) and {@code onToggle} persists each change. Call before {@link #createCaptureGroup()}.
      */
     public void setOnToggleDebugOutput(boolean initial, Consumer<Boolean> onToggle) {
-        this.debugOutputInitial = initial;
+        this.debugOutputOn = initial;
         this.onToggleDebugOutput = onToggle;
     }
 
@@ -198,6 +206,13 @@ public class ToolbarManager {
      * where the alternative was a toolbar taller than the canvas.
      */
     public OverflowBar createCaptureGroup() {
+        // CALLED MORE THAN ONCE. Since 2026-09-05 UIManager rebuilds this group on LibrariesChangedEvent,
+        // because it is the only plugin-facing surface composed once rather than on each open — the menus
+        // and the pickers ask PluginHost when they are opened, so they were always live, and this bar was
+        // why installing a plugin needed a restart before its buttons appeared. So nothing here may consume
+        // state that only exists the first time: every callback is a field set by StudioActions on this same
+        // instance, and debugOutputOn is kept current rather than being a seed (see its javadoc).
+        //
         // Studio's own items, spelled the way a plugin would have to spell them. Going through the same
         // record and the same builder is the point rather than a tidiness: an item built by a second path is
         // an item that drifts, and the first thing anybody would notice is that the host's buttons are the
@@ -232,13 +247,14 @@ public class ToolbarManager {
         // any other plugin's. It is the case this surface was added for: a whole feature behind one button,
         // where the host owns the bar and the plugin owns everything the press opens.
 
-        ToggleButton debugOutputButton = new ToggleButton(debugOutputText(debugOutputInitial));
+        ToggleButton debugOutputButton = new ToggleButton(debugOutputText(debugOutputOn));
         debugOutputButton.getStyleClass().add("toolbar-btn");
-        debugOutputButton.setSelected(debugOutputInitial);
+        debugOutputButton.setSelected(debugOutputOn);
         debugOutputButton.setTooltip(new Tooltip(
                 "Toggle the bot's debug output ([Bot]/[Game]/[Target]/[Activity] + vision traces). Saved with the project."));
         debugOutputButton.setOnAction(e -> {
             boolean on = debugOutputButton.isSelected();
+            debugOutputOn = on;
             debugOutputButton.setText(debugOutputText(on));
             if (onToggleDebugOutput != null) onToggleDebugOutput.accept(on);
         });

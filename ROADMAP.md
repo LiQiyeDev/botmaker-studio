@@ -6,6 +6,25 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-09-05 — a plugin's features appear when it is installed, not when Studio is restarted.** Two
+  surfaces were stale, and they were stale for two different reasons; everything else was already live.
+  - **The toolbar is composed once**, from `PluginHost.toolbarItems()` in `UIManager.createScene()`.
+    `UIManager` subscribes to `LibrariesChangedEvent` now and swaps a freshly built `createCaptureGroup()`
+    into the `BorderPane`'s centre — on the FX thread, and behind a `disposed` flag plus a null `topBar`,
+    because the event can arrive while a project is still opening or after it has closed (the `EventBus` is
+    per project and has no unsubscribe, the same hazard `themeListener` answers).
+  - **A block caches the node it drew.** `AbstractCodeBlock.getUINode` lazy-creates once, and what fills a
+    value slot is decided while that node is built — so a slot the newly installed plugin now has a
+    `SlotEditor` for went on showing the text field it was drawn with. `CodeEditorService` re-publishes
+    `UIRefreshRequestedEvent` with the text `ProjectState` already holds, which re-renders the open file and
+    records no history.
+  - **What needed nothing**: `StatementMenu`, `ExpressionMenu`, `BotType.sourceSeeds` and
+    `PickerRegistry`/`PluginPickers` all ask `PluginHost` at the moment they are opened. Worth stating,
+    because the obvious reading of "needs a restart" is that everything is cached and none of it is.
+  - **`ToolbarManager.debugOutputInitial` became `debugOutputOn` and is kept current.** A seed-only field was
+    true while the bar was built once per window; rebuilt, it would put the toggle back where the project
+    opened while the persisted setting is wherever the user left it.
+
 - **2026-09-05 — Manage Plugins and Manage Libraries read the pom that actually exists.** Three defects, one
   root: the two dialogs each believed something the project's `pom.xml` did not say.
   - **A plugin already installed still read *Install*.** `isInstalledIn` was asked against

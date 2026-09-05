@@ -156,6 +156,19 @@ public class CodeEditorService {
             Platform.runLater(this::reloadActivityStubs);
         }, false);
 
+        // The project's plugins have been re-bound, so the blocks on screen have to be built again. A block
+        // caches the node it drew (AbstractCodeBlock.getUINode lazy-creates once), and what fills a value slot
+        // is decided while that node is built — PickerRegistry asks PluginPickers, which asks whatever is
+        // bound. So a slot the newly installed plugin now has an editor for goes on showing the text field it
+        // was drawn with until something rebuilds it, which is what made installing a plugin need a restart.
+        // Nothing on disk changed: re-render the text ProjectState already holds, and record no history.
+        eventBus.subscribe(CoreApplicationEvents.LibrariesChangedEvent.class, event -> {
+            Path active = activePath();
+            if (active == null) return;
+            state.getFile(active).map(f -> f.getContent()).ifPresent(text ->
+                    eventBus.publish(new CoreApplicationEvents.UIRefreshRequestedEvent(text)));
+        }, false);
+
         eventBus.subscribe(CoreApplicationEvents.CodeUpdatedEvent.class, event -> {
             handleCodeUpdateForHistory(event);
             CompilationUnit parsed = adopt(event.newCode());

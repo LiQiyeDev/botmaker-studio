@@ -96,6 +96,24 @@ public class UIManager implements ProjectWindow {
 
     private VcsPanel vcsPanel;
 
+    /**
+     * The toolbar, kept so its centre group can be rebuilt when the project's plugins change.
+     *
+     * <p>Everything else a plugin contributes is already live: {@code StatementMenu}, {@code ExpressionMenu},
+     * {@code BotType} and {@code PickerRegistry} all ask {@code PluginHost} at the moment they are opened, so
+     * they answer with whatever is bound by then. The bar is the one surface built <em>once</em>, from
+     * {@code PluginHost.toolbarItems()} in {@link #createScene()} — which is why installing a plugin used to
+     * need a restart before its buttons appeared, and only its buttons.
+     */
+    private BorderPane topBar;
+    /**
+     * Set by {@link #dispose()}, so a rebuild queued behind an event cannot touch a window that is going away.
+     *
+     * <p>The {@code EventBus} is per project and has no unsubscribe, and a new {@code UIManager} is built on
+     * every project open and every reload — the same hazard {@code themeListener} exists to answer.
+     */
+    private boolean disposed;
+
     /** The centre column — block canvas, Reader banner, scrolling. Built by {@link #createScene()}. */
     private EditorCanvas editorCanvas;
     /** The Errors bottom tab. Built by {@link #createScene()}. */
@@ -187,6 +205,8 @@ public class UIManager implements ProjectWindow {
      */
     @Override
     public void dispose() {
+        disposed = true;
+        topBar = null;
         if (workspaceLayout != null) {
             workspaceLayout.save();
             workspaceLayout = null;
@@ -232,6 +252,16 @@ public class UIManager implements ProjectWindow {
         // OpenResourceManagerEvent had its one subscriber here until 2026-09-01. The manager is the SDK
         // plugin's now, and a host event no host handler answers is worse than no event: it fires, nothing
         // happens, and nothing says so. The event type stays for a publisher that has not been repointed yet.
+
+        // The plugins have been re-bound (LibraryService.rebind), so the bar has to be rebuilt: it is the one
+        // plugin-facing surface composed once rather than on each open. On the FX thread because it swaps a
+        // live node into the scene graph, and behind both guards because the event can arrive while a project
+        // is still opening (no bar yet) or after it has closed (no window to put one in).
+        eventBus.subscribe(CoreApplicationEvents.LibrariesChangedEvent.class, event -> {
+            if (disposed || topBar == null) return;
+            topBar.setCenter(toolbarManager.createCaptureGroup());
+        }, true);
+
         eventBus.subscribe(CoreApplicationEvents.UIBlocksUpdatedEvent.class, event -> {
             if (editorCanvas != null) editorCanvas.handleBlocksUpdate(event);
         }, true);
@@ -302,6 +332,7 @@ public class UIManager implements ProjectWindow {
         OverflowBar captureControls = toolbarManager.createCaptureGroup();
 
         BorderPane topBar = new BorderPane();
+        this.topBar = topBar;
         topBar.setLeft(editControls);
         topBar.setCenter(captureControls);
         topBar.setRight(rightContainer);

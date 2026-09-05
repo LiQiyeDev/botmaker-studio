@@ -14,6 +14,9 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
 ### Fixed
 
+- **A plugin you install works straight away — no restart.** Its toolbar buttons appear as soon as the
+  install finishes, and the blocks already on screen pick up the editors it brings. Removing one takes them
+  away again the same way.
 - **Installing the SDK from *Project ▸ Manage Plugins* now gives you a working palette.** It added the SDK
   and nothing else, and the SDK's editor-side pieces — the widget toolkit, JavaFX, the Pilot's server —
   are marked so that they do not travel with it. So the plugin could not load: no menu entries, no slot
