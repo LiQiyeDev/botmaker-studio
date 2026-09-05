@@ -6,6 +6,20 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-09-05 — *Start from* leads with the gallery's templates; Blank is the offline fallback.**
+  `botmaker-base` is what Blank used to be, so listing both offered one thing twice under two names.
+  `loadTemplates` **replaces** the blank row when any template arrives, selecting the first, and leaves it
+  alone when none does — which is the whole reason Studio still composes a starting project
+  (`project/StarterSources`): New Project has to work with no network. Nobody picks Blank on purpose now.
+  - Templates are sorted by display name, so the preselected row is the same on every launch rather than a
+    property of how the gallery's CI generated `index.json`.
+  - **Select before removing.** Dropping the selected item leaves the combo's value null, and the dialog's
+    result converter reads "no value" as the blank project — which is the row being taken away.
+  - `TemplateChoice.displayName()` capitalizes the first letter, **for display only**. A gallery entry's name
+    is its repository's (`botmaker-base` publishes as `base`), so it sat beside Studio's own "Blank" looking
+    like a different kind of thing. `entry.name()` is what `BotInstaller` resolves and what
+    `GitHubConfig.entryPath` keys on, so nothing else may capitalize it.
+
 - **2026-09-05 — the dead Resource Manager entry points are deleted.** `ToolbarManager`'s 🗂 Resources item
   (TOOLS/50) and `setOnAccessResources`, `MenuBarManager`'s *Resource Manager…* and `setOnManageResources`,
   and `CoreApplicationEvents.OpenResourceManagerEvent`. The window they name has been the SDK plugin's

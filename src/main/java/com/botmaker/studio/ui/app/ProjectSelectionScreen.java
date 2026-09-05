@@ -471,9 +471,10 @@ public class ProjectSelectionScreen implements ProjectWindow {
         // toolbar item on the first capture — so New Project no longer asks for it, and a fresh project has
         // no capture.width/capture.height until a picture is taken.
 
-        // The starting point. "Blank" is Studio's own and is always here, which is what makes New Project work
-        // with no network; every other row is a published bot tagged `template` in the gallery, fetched in the
-        // background so an unreachable index costs nothing but the extra rows.
+        // The starting point. "Blank" is Studio's own and is what the list starts as, which is what makes New
+        // Project work with no network; every other row is a published bot tagged `template` in the gallery,
+        // fetched in the background. Since 2026-09-05 Blank is REPLACED by the templates when any arrive,
+        // rather than leading them — see loadTemplates.
         ComboBox<TemplateChoice> templateCombo = new ComboBox<>(
                 javafx.collections.FXCollections.observableArrayList(TemplateChoice.blank()));
         templateCombo.setValue(TemplateChoice.blank());
@@ -487,8 +488,9 @@ public class ProjectSelectionScreen implements ProjectWindow {
         loadTemplates(templateCombo);
 
         // One line under the dropdown, saying what the chosen row actually gives you. It matters more than
-        // it looks: "Blank" now means a plain Java project with no bot API in it, and a user who picks it
-        // expecting the old behaviour would find an empty palette and no explanation.
+        // it looks: "Blank" means a plain Java project with no bot API in it, and a user who reaches it
+        // — which now only happens when the gallery is unreachable — would otherwise find an empty palette
+        // and no explanation.
         Label startNote = new Label();
         startNote.setStyle("-fx-font-size: 10px; -fx-text-fill: gray;");
         startNote.setWrapText(true);
@@ -569,22 +571,53 @@ public class ProjectSelectionScreen implements ProjectWindow {
             if (entry == null) return "Blank — a main() and nothing else";
             String description = entry.description() == null || entry.description().isBlank()
                     ? "" : " — " + entry.description();
-            return entry.name() + description + "  (" + entry.owner() + ")";
+            return displayName() + description + "  (" + entry.owner() + ")";
+        }
+
+        /**
+         * The entry's name with its first letter capitalized, for display only.
+         *
+         * <p>A gallery entry's name comes from its repository — {@code botmaker-base} publishes as
+         * {@code base} — so it is lowercase, and it sat in a list beside Studio's own "Blank" looking like a
+         * different kind of thing. Nothing may capitalize it anywhere but here: {@code entry.name()} is what
+         * {@code BotInstaller} resolves and what {@code GitHubConfig.entryPath} keys on.
+         */
+        String displayName() {
+            String name = entry.name() == null ? "" : entry.name();
+            return name.isEmpty() ? name : Character.toUpperCase(name.charAt(0)) + name.substring(1);
         }
     }
 
     /**
-     * Appends the gallery's templates to {@code combo}, off the FX thread.
+     * Puts the gallery's templates into {@code combo}, off the FX thread — <b>replacing</b> the blank row
+     * rather than joining it.
      *
-     * <p>Failure is silent on purpose: the list already holds the blank project, which is a complete answer to
-     * "what can I start from", and an error dialog in front of a working New Project dialog would be the
-     * network's problem presented as the user's.
+     * <p>The maintainer's call, 2026-09-05: {@code botmaker-base} is what Blank used to be, so listing both
+     * offered the same thing twice under two names. Blank stays as the row you get when the gallery cannot
+     * be reached, which is the only reason Studio composes a starting project at all
+     * ({@code project/StarterSources}) — New Project has to work on a plane. Nobody picks it on purpose.
+     *
+     * <p>Sorted by display name so the default is the same row on every launch: the index's own order is a
+     * property of how CI generated it, and the first row here is the one preselected.
+     *
+     * <p>Failure is silent on purpose, and this is what it degrades to: the blank row is untouched, which is
+     * a complete answer to "what can I start from". An error dialog in front of a working New Project dialog
+     * would be the network's problem presented as the user's.
      */
     private void loadTemplates(ComboBox<TemplateChoice> combo) {
         new GitHubGallery(gitHubClient, gitHubAuth).browse().thenAccept(entries -> Platform.runLater(() -> {
-            for (GalleryEntry entry : entries) {
-                if (entry.isTemplate()) combo.getItems().add(new TemplateChoice(entry));
-            }
+            List<TemplateChoice> templates = entries.stream()
+                    .filter(GalleryEntry::isTemplate)
+                    .map(TemplateChoice::new)
+                    .sorted(Comparator.comparing(TemplateChoice::displayName, String.CASE_INSENSITIVE_ORDER))
+                    .toList();
+            if (templates.isEmpty()) return;
+            combo.getItems().addAll(templates);
+            // Select before removing: dropping the selected item would leave the value null, and the dialog's
+            // result converter reads "no value" as the blank project — which is exactly the row being taken
+            // away.
+            combo.setValue(templates.get(0));
+            combo.getItems().remove(TemplateChoice.blank());
         }));
     }
 

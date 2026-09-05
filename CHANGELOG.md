@@ -27,6 +27,13 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 - ***Manage Libraries* no longer lists a BotMaker SDK your project does not have.** A blank project showed
   an SDK row with an empty version and offered to change it.
 
+### Changed
+
+- ***New Project ▸ Start from* leads with the published templates.** *Base* was doing the same job as
+  Studio's built-in *Blank*, so the two are no longer listed side by side: the templates replace *Blank*
+  when the gallery can be reached, and *Blank* is what you get when it cannot — so creating a project still
+  works with no network. Template names are shown capitalized.
+
 ### Removed
 
 - **🗂 Resources and *Project ▸ Resource Manager…* are gone.** Both opened nothing — the window moved to
