@@ -6,6 +6,18 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-09-05 — the GitHub layer left for `botmaker-shared`.** `sharing/{GitHubClient, GitHubAuth,
+  GitHubConfig, SemVer}` are `com.botmaker.shared.github`; 16 files retargeted an import and 5 more in
+  `sharing/` gained one they had been getting same-package. `SemVerTest` went with the class.
+  - **A second operator is the reason.** `botmaker-dashboard` reads the same gallery, the same plugin
+    registry and the same pull requests. A hand-rolled OAuth device flow with a `0600` token file cannot
+    exist in two repositories, and the owner/repo names should be one edit when a repository moves.
+  - **The readers stayed** — `BotPublisher`, `GitHubGallery`, `PluginRegistry`, `BotInstaller`,
+    `UpdateService`, `CliUpdateService`. They know what a bot, a gallery entry and a plugin index *are*,
+    which is the editor's vocabulary; shared owns the request, not what the JSON means.
+  - **`GoogleAuth`/`GoogleConfig` did not move**, and still share `credentials.json` with `GitHubAuth` — so
+    the merge-don't-overwrite rule in `store` is now a rule spanning two repositories.
+
 - **2026-09-05 — Studio brings the `botmaker` command with it, and keeps it current (Linux only).** Both
   `build-deb` and `build-rpm` now name `botmaker` in `--linux-package-deps`, and `services/CliUpdateService`
   offers the upgrade from Help ▸ *Update Command-Line Tool…*.

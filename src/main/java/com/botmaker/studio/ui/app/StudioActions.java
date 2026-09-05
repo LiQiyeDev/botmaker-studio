@@ -1,6 +1,8 @@
 package com.botmaker.studio.ui.app;
 
 import com.botmaker.plugin.api.StudioPlugin;
+import com.botmaker.shared.github.GitHubAuth;
+import com.botmaker.shared.github.GitHubClient;
 import com.botmaker.studio.docs.StudioAction;
 import com.botmaker.studio.events.EventBus;
 import com.botmaker.studio.project.ProjectConfig;
@@ -19,8 +21,6 @@ import com.botmaker.studio.services.SdkUpgradeService;
 import com.botmaker.studio.sharing.BotInstaller;
 import com.botmaker.studio.sharing.BotPublisher;
 import com.botmaker.studio.sharing.BotSource;
-import com.botmaker.studio.sharing.GitHubAuth;
-import com.botmaker.studio.sharing.GitHubClient;
 import com.botmaker.studio.sharing.GitHubGallery;
 import com.botmaker.studio.sharing.PluginRegistry;
 import com.botmaker.studio.plugin.PluginHost;

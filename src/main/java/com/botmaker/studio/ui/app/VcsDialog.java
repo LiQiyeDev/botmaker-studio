@@ -1,9 +1,9 @@
 package com.botmaker.studio.ui.app;
 
+import com.botmaker.shared.github.GitHubAuth;
+import com.botmaker.shared.github.GitHubClient;
 import com.botmaker.studio.events.EventBus;
 import com.botmaker.studio.sharing.BotPublisher;
-import com.botmaker.studio.sharing.GitHubAuth;
-import com.botmaker.studio.sharing.GitHubClient;
 import javafx.geometry.Insets;
 import javafx.scene.Scene;
 import javafx.scene.layout.VBox;

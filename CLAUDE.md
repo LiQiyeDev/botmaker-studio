@@ -1122,6 +1122,22 @@ bound port and a nested `:N` display that `UIManager.dispose()` releases today.
 
 ### Sharing — the gallery is read whole and written one file at a time
 
+**The HTTP layer under all of this is `botmaker-shared`'s since 2026-09-05.** `GitHubClient`, `GitHubAuth`,
+`GitHubConfig` and `SemVer` are `com.botmaker.shared.github` — moved verbatim, imports only on this side.
+What stayed here is every **reader** built on them (`BotPublisher`, `GitHubGallery`, `PluginRegistry`,
+`BotInstaller`, `UpdateService`, `CliUpdateService`), because those know what a bot, a gallery entry and a
+plugin index are, and that is the editor's vocabulary rather than the platform's. The line to hold when
+something new is added: *a repository name, a token or a request belongs to shared; what the JSON means
+belongs here.*
+
+- **The reason it moved is a second operator, not tidiness.** `botmaker-dashboard` reads the same registry,
+  the same gallery and the same pull requests, and a hand-rolled OAuth **device flow** with a `0600` token
+  file is precisely the code that must not exist in two repositories.
+- **`GoogleAuth` and `GoogleConfig` did not move** — nothing else wants them. They still share
+  `credentials.json` with `GitHubAuth`, whose `store` merges the whole map rather than overwriting it; that
+  rule now spans two repositories, so signing into Google must still not wipe the GitHub token.
+
+
 `sharing/GitHubGallery` **reads** `index.json` from the gallery's raw-CDN URL; `sharing/BotPublisher`
 **writes** `bots/<owner>-<repo>.json` and nothing else. Since 2026-08-28 `index.json` is *generated* by the
 gallery's own CI from those entry files, and a pull request that edits it is refused — so the read path and

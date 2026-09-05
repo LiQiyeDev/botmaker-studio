@@ -1,7 +1,7 @@
 package com.botmaker.studio.services;
 
+import com.botmaker.shared.github.SemVer;
 import com.botmaker.studio.services.SdkUpgradeService.Highlight;
-import com.botmaker.studio.sharing.SemVer;
 
 import java.io.IOException;
 import java.io.InputStream;

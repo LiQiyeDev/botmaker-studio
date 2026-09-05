@@ -1,10 +1,10 @@
 package com.botmaker.studio.services;
 
 import com.botmaker.shared.Executables;
+import com.botmaker.shared.github.GitHubClient;
+import com.botmaker.shared.github.GitHubConfig;
+import com.botmaker.shared.github.SemVer;
 import com.botmaker.studio.config.AppVersion;
-import com.botmaker.studio.sharing.GitHubClient;
-import com.botmaker.studio.sharing.GitHubConfig;
-import com.botmaker.studio.sharing.SemVer;
 import com.fasterxml.jackson.databind.JsonNode;
 
 import java.awt.Desktop;

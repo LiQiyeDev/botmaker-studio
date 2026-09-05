@@ -10,6 +10,15 @@ date it.
 
 Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
+## [Unreleased]
+
+### Changed
+
+- **The GitHub layer is `botmaker-shared`'s.** `GitHubClient`, `GitHubAuth`, `GitHubConfig` and `SemVer` are
+  `com.botmaker.shared.github`; Studio changed import lines and nothing else. Sign-in, publishing, the
+  gallery, the plugin registry and both updaters behave exactly as before. The move is for the coming
+  operator GUI, which reads the same repositories and must not carry a second copy of the OAuth device flow.
+
 ## [1.0.37] — 2026-09-05
 
 ### Fixed

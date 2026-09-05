@@ -1,9 +1,9 @@
 package com.botmaker.studio.services;
 
 import com.botmaker.shared.Executables;
-import com.botmaker.studio.sharing.GitHubClient;
-import com.botmaker.studio.sharing.GitHubConfig;
-import com.botmaker.studio.sharing.SemVer;
+import com.botmaker.shared.github.GitHubClient;
+import com.botmaker.shared.github.GitHubConfig;
+import com.botmaker.shared.github.SemVer;
 
 import java.io.IOException;
 import java.util.Locale;

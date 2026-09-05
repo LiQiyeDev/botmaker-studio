@@ -1,10 +1,10 @@
 package com.botmaker.studio.services;
 
+import com.botmaker.shared.github.SemVer;
 import com.botmaker.studio.services.SdkApiModel.ApiClass;
 import com.botmaker.studio.services.SdkApiModel.ApiMember;
 import com.botmaker.studio.services.SdkApiModel.Claim;
 import com.botmaker.studio.services.SdkApiModel.Pointer;
-import com.botmaker.studio.sharing.SemVer;
 
 import java.util.ArrayDeque;
 import java.util.ArrayList;

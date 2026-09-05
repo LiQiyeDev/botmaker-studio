@@ -1,6 +1,7 @@
 package com.botmaker.studio.sharing;
 
 import com.botmaker.shared.config.CacheDirs;
+import com.botmaker.shared.github.GitHubAuth;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 

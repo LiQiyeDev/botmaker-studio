@@ -1,5 +1,7 @@
 package com.botmaker.studio.ui.app;
 
+import com.botmaker.shared.github.GitHubAuth;
+import com.botmaker.shared.github.GitHubClient;
 import com.botmaker.studio.project.ProjectCreator;
 import com.botmaker.studio.project.ProjectInfo;
 import com.botmaker.studio.project.ProjectPreferences;
@@ -9,8 +11,6 @@ import com.botmaker.studio.services.MavenService;
 import com.botmaker.studio.sharing.BotInstaller;
 import com.botmaker.studio.sharing.BotSource;
 import com.botmaker.studio.sharing.GalleryEntry;
-import com.botmaker.studio.sharing.GitHubAuth;
-import com.botmaker.studio.sharing.GitHubClient;
 import com.botmaker.studio.sharing.GitHubGallery;
 import com.botmaker.studio.ui.render.theme.ThemedWindows;
 import javafx.application.Platform;

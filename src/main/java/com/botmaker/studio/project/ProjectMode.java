@@ -1,7 +1,7 @@
 package com.botmaker.studio.project;
 
+import com.botmaker.shared.github.GitHubAuth;
 import com.botmaker.studio.sharing.BotSource;
-import com.botmaker.studio.sharing.GitHubAuth;
 
 import java.io.IOException;
 import java.nio.file.Files;

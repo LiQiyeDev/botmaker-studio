@@ -1,15 +1,15 @@
 package com.botmaker.studio.ui.app;
 
+import com.botmaker.shared.github.GitHubAuth;
+import com.botmaker.shared.github.GitHubClient;
+import com.botmaker.shared.github.SemVer;
 import com.botmaker.studio.project.ProjectConfig;
 import com.botmaker.studio.project.ProjectCreator;
 import com.botmaker.studio.project.TemplateProject;
 import com.botmaker.studio.sharing.GalleryEntry;
 import com.botmaker.studio.sharing.BotPublisher;
 import com.botmaker.studio.sharing.BotSource;
-import com.botmaker.studio.sharing.GitHubAuth;
-import com.botmaker.studio.sharing.GitHubClient;
 import com.botmaker.studio.sharing.GitHubGallery;
-import com.botmaker.studio.sharing.SemVer;
 import com.botmaker.studio.ui.render.theme.ThemedWindows;
 import com.botmaker.studio.util.BrowserLauncher;
 import javafx.application.Platform;

@@ -1,5 +1,7 @@
 package com.botmaker.studio.sharing;
 
+import com.botmaker.shared.github.GitHubClient;
+import com.botmaker.shared.github.GitHubConfig;
 import com.botmaker.studio.config.Constants;
 
 import java.io.ByteArrayInputStream;

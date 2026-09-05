@@ -1,5 +1,8 @@
 package com.botmaker.studio.sharing;
 
+import com.botmaker.shared.github.GitHubAuth;
+import com.botmaker.shared.github.GitHubClient;
+import com.botmaker.shared.github.GitHubConfig;
 import com.fasterxml.jackson.databind.JsonNode;
 
 import java.util.List;

@@ -1,8 +1,8 @@
 package com.botmaker.studio.services;
 
+import com.botmaker.shared.github.SemVer;
 import com.botmaker.studio.index.TypeSummaryManager;
 import com.botmaker.studio.parser.refactor.SdkReferences;
-import com.botmaker.studio.sharing.SemVer;
 import io.github.classgraph.AnnotationInfo;
 import io.github.classgraph.AnnotationInfoList;
 import io.github.classgraph.ClassInfo;
