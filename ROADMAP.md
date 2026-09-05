@@ -6,6 +6,16 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-09-05 — the dead Resource Manager entry points are deleted.** `ToolbarManager`'s 🗂 Resources item
+  (TOOLS/50) and `setOnAccessResources`, `MenuBarManager`'s *Resource Manager…* and `setOnManageResources`,
+  and `CoreApplicationEvents.OpenResourceManagerEvent`. The window they name has been the SDK plugin's
+  🖼 Manage Pictures since 2026-09-01; the callbacks lost their last caller the same day, so for four days
+  both controls fired a null `Runnable` and did nothing. **A control that does nothing is worse than an
+  absent one** — it teaches the user the feature is broken rather than that it moved. The event was kept
+  "for a publisher that has not been repointed yet" and never acquired one. Neither slot is backfilled: the
+  shell has no handle on another plugin's toolbar item, the same reason the Capture Templates and Capture
+  Targets steps lost their buttons.
+
 - **2026-09-05 — a plugin's features appear when it is installed, not when Studio is restarted.** Two
   surfaces were stale, and they were stale for two different reasons; everything else was already live.
   - **The toolbar is composed once**, from `PluginHost.toolbarItems()` in `UIManager.createScene()`.

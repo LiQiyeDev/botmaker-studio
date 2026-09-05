@@ -249,9 +249,9 @@ public class UIManager implements ProjectWindow {
     }
 
     private void setupEventHandlers() {
-        // OpenResourceManagerEvent had its one subscriber here until 2026-09-01. The manager is the SDK
-        // plugin's now, and a host event no host handler answers is worse than no event: it fires, nothing
-        // happens, and nothing says so. The event type stays for a publisher that has not been repointed yet.
+        // OpenResourceManagerEvent had its one subscriber here until 2026-09-01, and the event type itself
+        // is deleted as of 2026-09-05 — nothing ever published it again. The manager is the SDK plugin's
+        // 🖼 Manage Pictures.
 
         // The plugins have been re-bound (LibraryService.rebind), so the bar has to be rebuilt: it is the one
         // plugin-facing surface composed once rather than on each open. On the FX thread because it swaps a

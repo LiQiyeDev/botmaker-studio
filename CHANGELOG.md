@@ -27,6 +27,12 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 - ***Manage Libraries* no longer lists a BotMaker SDK your project does not have.** A blank project showed
   an SDK row with an empty version and offered to change it.
 
+### Removed
+
+- **🗂 Resources and *Project ▸ Resource Manager…* are gone.** Both opened nothing — the window moved to
+  🖼 **Manage Pictures** on the toolbar in 1.0.32, and these two were left behind pointing at nowhere. Use
+  🖼 Manage Pictures; it does everything the old window did.
+
 ### Changed
 
 - **A newly created project pins SDK 1.1.6**, which is the first release whose plugin half loads when the SDK

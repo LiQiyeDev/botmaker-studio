@@ -67,8 +67,6 @@ public class ToolbarManager {
     private Runnable onConfigureInput;
     /** Opens the program-shape overlay authoring editor; wired by {@link UIManager}. */
     private Runnable onOverlayEditor;
-    /** Opens the Resource Manager (image templates); wired by {@link UIManager}. */
-    private Runnable onAccessResources;
 
     private enum AppState { IDLE, RUNNING, DEBUGGING }
     private AppState currentAppState = AppState.IDLE;
@@ -189,11 +187,6 @@ public class ToolbarManager {
         this.onPreviewAsUser = onPreview;
     }
 
-    /** Sets the callback invoked when the toolbar's Resources button is clicked. */
-    public void setOnAccessResources(Runnable callback) {
-        this.onAccessResources = callback;
-    }
-
     /**
      * Creates the center group: every project-level action as its own visible button, wrapping onto a second
      * row when the window narrows and into a {@code »} menu after that ({@link OverflowBar}).
@@ -304,9 +297,13 @@ public class ToolbarManager {
         // plugin's ⏺ Record Macro since 2026-09-02 and arrives as a ToolbarItem like any other plugin's:
         // deciding that a recorded click is a Mouse.click is that plugin's vocabulary, not the shell's.
 
-        place(placed, ctx, ToolbarItem.of("resources", "🗂 Resources",
-                "Browse the project's resource files",
-                ToolbarGroup.TOOLS, 50, c -> run(onAccessResources)));
+        // 🗂 Resources stood here at TOOLS/50 until 2026-09-05 and is DELETED. The window it opened is the
+        // SDK plugin's 🖼 Manage Pictures (TOOLS/30) since 2026-09-01, when the last thing here that knew
+        // what a picture is called went with it — and setOnAccessResources lost its caller on the same day,
+        // so for four days the button ran a null Runnable and did nothing at all. That is worse than an
+        // absent button: it teaches the user the feature is broken rather than that it moved. The slot is
+        // deliberately left empty rather than backfilled — the shell has no handle on another plugin's
+        // toolbar item, the same reason the Capture Templates and Capture Targets steps lost their buttons.
 
         resolutionLabel = new Label(resolutionText());
         resolutionLabel.getStyleClass().add("toolbar-resolution");

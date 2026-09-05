@@ -87,8 +87,11 @@ public class CoreApplicationEvents {
     // pickers can refresh". It was deleted on 2026-08-31: it had four publishers and never a subscriber, and
     // no picker needed one — each re-reads the library when it opens its gallery.
 
-    /** Request to open the Resource Manager dialog (e.g. from a block's image-template picker). */
-    public record OpenResourceManagerEvent() implements ApplicationEvent {}
+    // OpenResourceManagerEvent went the same way on 2026-09-05, and for a reason one line stronger: it had
+    // lost its only *subscriber* on 2026-09-01 (the manager is the SDK plugin's 🖼 Manage Pictures now) and
+    // it never had a publisher afterwards either. It was kept "for a publisher that has not been repointed
+    // yet"; four days later there was none, and an event nothing raises and nothing answers is a promise the
+    // host cannot keep — it fires, nothing happens, and nothing says so.
 
     /**
      * Request to close and re-open the current project from disk — used after a VCS rollback rewrites the

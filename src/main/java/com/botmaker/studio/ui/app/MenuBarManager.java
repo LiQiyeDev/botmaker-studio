@@ -39,7 +39,6 @@ public class MenuBarManager {
     /** Kept so the entry can be renamed once the project's settings model is known. */
     private Runnable onRecoverProjectFiles;
     private Runnable onReviewChanges;
-    private Runnable onManageResources;
     private Runnable onProjectSettings;
     private Runnable onGettingStarted;
     /** Help ▸ Picker Gallery — present only in a dev build. See {@link #createHelpMenu()}. */
@@ -246,10 +245,12 @@ public class MenuBarManager {
             if (onParameters != null) onParameters.run();
         });
 
-        MenuItem manageResourcesItem = new MenuItem("Resource Manager...");
-        manageResourcesItem.setOnAction(e -> {
-            if (onManageResources != null) onManageResources.run();
-        });
+        // "Resource Manager..." stood here until 2026-09-05 and is DELETED, not moved: the window it named
+        // has been the SDK plugin's 🖼 Manage Pictures since 2026-09-01, reached from the toolbar, and
+        // setOnManageResources lost its last caller the same day. So the item fired a null Runnable — a menu
+        // entry that does nothing teaches the user the feature is broken rather than that it moved, which is
+        // strictly worse than its absence. The shell has no handle on another plugin's toolbar item, so
+        // there is nothing to repoint it at.
 
         MenuItem projectSettingsItem = new MenuItem("Project Settings...");
         projectSettingsItem.setOnAction(e -> {
@@ -294,7 +295,7 @@ public class MenuBarManager {
                 manageLibrariesItem, managePluginsItem, reloadPluginsItem, upgradeSdkItem, moderniseItem,
                 manageImportsItem,
                 new SeparatorMenuItem(),
-                activityFlowItem, parametersItem, manageResourcesItem,
+                activityFlowItem, parametersItem,
                 new SeparatorMenuItem(),
                 projectSettingsItem, new SeparatorMenuItem(),
                 recoverFilesItem, reviewItem, historyItem, new SeparatorMenuItem(),
@@ -692,11 +693,6 @@ public class MenuBarManager {
      */
     public void setOnPickerGallery(Runnable callback) {
         this.onPickerGallery = callback;
-    }
-
-    /** Sets the callback for when "Resource Manager..." is clicked. */
-    public void setOnManageResources(Runnable callback) {
-        this.onManageResources = callback;
     }
 
     /** Sets the callback for when "Project Settings..." is clicked. */
