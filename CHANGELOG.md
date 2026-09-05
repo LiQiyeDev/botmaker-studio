@@ -12,6 +12,18 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Installing the SDK from *Project ▸ Manage Plugins* now gives you a working palette.** It added the SDK
+  and nothing else, and the SDK's editor-side pieces — the widget toolkit, JavaFX, the Pilot's server —
+  are marked so that they do not travel with it. So the plugin could not load: no menu entries, no slot
+  editors, no plugin toolbar buttons, and nothing on screen saying why. Installing declares those pieces
+  now, and removing the plugin takes them back out.
+- **The Install button tells the truth.** A plugin your project already has reads **Remove**, and pressing
+  Install twice can no longer leave two copies of it in your `pom.xml`.
+- ***Manage Libraries* no longer lists a BotMaker SDK your project does not have.** A blank project showed
+  an SDK row with an empty version and offered to change it.
+
 ### Changed
 
 - **A newly created project pins SDK 1.1.6**, which is the first release whose plugin half loads when the SDK

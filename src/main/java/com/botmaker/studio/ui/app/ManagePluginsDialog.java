@@ -66,7 +66,15 @@ public final class ManagePluginsDialog {
     private final ProgressIndicator progress = new ProgressIndicator();
     private final ListView<PluginRegistry.Plugin> list = new ListView<>(shown);
 
-    /** The project's libraries as they stand, re-read after every change so the badges stay honest. */
+    /**
+     * Everything the project's pom declares, re-read after every change so the badges stay honest.
+     *
+     * <p><b>Declared, not user-added</b>, and that distinction is the whole of the bug this fixed:
+     * {@code LibraryService.currentLibraries()} answers the dependencies that are <em>not</em> built in, and
+     * {@code botmaker-sdk} is built in — so the one plugin that exists read as not-installed forever, its
+     * button said <i>Install</i> however many times it had been pressed, and each press appended another
+     * {@code botmaker-sdk} to the pom.
+     */
     private List<UserLibrary> installed = List.of();
 
     /** The coordinates a dev build in {@code ~/.m2} answers for, so a row can say where its version came from. */
@@ -88,7 +96,7 @@ public final class ManagePluginsDialog {
         stage.initModality(Modality.APPLICATION_MODAL);
         stage.setTitle("Manage Plugins");
 
-        installed = libraryService.currentLibraries();
+        installed = libraryService.declaredLibraries();
 
         searchField.setPromptText("Search plugins");
         searchField.textProperty().addListener((obs, old, text) -> refilter(text));
@@ -188,11 +196,17 @@ public final class ManagePluginsDialog {
     // -------------------------------------------------------------------------
 
     /**
-     * Adds the plugin's coordinate to the project's libraries.
+     * Declares the plugin's coordinate in the project's pom.
      *
-     * <p>Idempotent by coordinate: re-installing replaces the row rather than adding a second one, since
+     * <p>Idempotent by coordinate: re-installing replaces the entry rather than adding a second one, since
      * two versions of one artifact on a classpath is the state that produces the least diagnosable failure
-     * this platform has.
+     * this platform has. That is enforced by {@code MavenService.installPlugin} editing the pom in place —
+     * it used to be attempted here, by rebuilding the user-library list, which could not see a plugin the
+     * pom classes as built in and so wrote the SDK twice.
+     *
+     * <p>It is also where a plugin that needs something of the host gets it: installing the SDK declares the
+     * {@code provided} entries its plugin half cannot load without. See {@code MavenService.installPlugin}
+     * for why that is the SDK alone and not a general privilege.
      */
     private void install(PluginRegistry.Plugin plugin) {
         if (!plugin.isInstallable()) {
@@ -208,42 +222,32 @@ public final class ManagePluginsDialog {
                 });
                 return;
             }
-            List<UserLibrary> next = new ArrayList<>(libraryService.currentLibraries());
-            next.removeIf(lib -> lib.groupId().equals(plugin.groupId())
-                    && lib.artifactId().equals(plugin.artifactId()));
-            next.add(new UserLibrary(plugin.groupId(), plugin.artifactId(), version));
-            apply(next, plugin.name() + " " + version + " installed.");
+            apply(libraryService.installPlugin(
+                            new UserLibrary(plugin.groupId(), plugin.artifactId(), version)),
+                    plugin.name() + " " + version + " installed.");
         });
     }
 
     private void remove(PluginRegistry.Plugin plugin) {
         busy(true);
-        List<UserLibrary> next = new ArrayList<>(libraryService.currentLibraries());
-        next.removeIf(lib -> lib.groupId().equals(plugin.groupId())
-                && lib.artifactId().equals(plugin.artifactId()));
-        apply(next, plugin.name() + " removed.");
+        apply(libraryService.removePlugin(plugin.groupId(), plugin.artifactId()),
+                plugin.name() + " removed.");
     }
 
-    /**
-     * Writes the pom and re-resolves, then re-reads what is installed.
-     *
-     * <p>The SDK version is passed straight back through: this dialog has no business moving it, and
-     * {@code updateLibraries} takes it because the pom is written whole.
-     */
-    private void apply(List<UserLibrary> libraries, String done) {
-        libraryService.updateLibraries(libraries, libraryService.currentSdkVersion())
-                .whenComplete((ok, err) -> Platform.runLater(() -> {
-                    busy(false);
-                    installed = libraryService.currentLibraries();
-                    // The badges are per-row, so the rows are what have to be redrawn.
-                    list.refresh();
-                    if (err != null) {
-                        error(rootMessage(err));
-                    } else {
-                        statusLabel.setStyle("-fx-text-fill: gray;");
-                        statusLabel.setText(done);
-                    }
-                }));
+    /** Reports the outcome of a pom write, then re-reads what the pom now declares. */
+    private void apply(CompletableFuture<Void> write, String done) {
+        write.whenComplete((ok, err) -> Platform.runLater(() -> {
+            busy(false);
+            installed = libraryService.declaredLibraries();
+            // The badges are per-row, so the rows are what have to be redrawn.
+            list.refresh();
+            if (err != null) {
+                error(rootMessage(err));
+            } else {
+                statusLabel.setStyle("-fx-text-fill: gray;");
+                statusLabel.setText(done);
+            }
+        }));
     }
 
     /** The verified version, or — only when the entry carries none — JitPack's newest. */

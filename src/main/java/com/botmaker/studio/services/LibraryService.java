@@ -42,6 +42,63 @@ public final class LibraryService {
     }
 
     /**
+     * <b>Every</b> dependency the project pom declares, the built-in ones included.
+     *
+     * <p>What <b>Manage Plugins</b> asks, and it is a different question from {@link #currentLibraries}:
+     * <i>is this coordinate installed</i> rather than <i>what did the user add</i>. The SDK is a built-in as
+     * far as {@code readUserLibraries} is concerned, so asking the narrow question about it always answered
+     * no. See {@link MavenService#readDeclaredLibraries}.
+     */
+    public List<UserLibrary> declaredLibraries() {
+        return MavenService.readDeclaredLibraries(config.projectPath());
+    }
+
+    /**
+     * Declares {@code plugin} in the pom — with, for the SDK, the {@code provided} entries its plugin half
+     * needs — then re-resolves, re-binds and re-indexes.
+     *
+     * <p>Not expressible through {@link #updateLibraries}: that writer keeps the pom's default dependencies
+     * and appends whatever list it is given, so installing a plugin that is also a default writes it twice.
+     * {@link MavenService#installPlugin} edits the pom in place instead and is idempotent by coordinate.
+     */
+    public CompletableFuture<Void> installPlugin(UserLibrary plugin) {
+        return CompletableFuture.runAsync(() -> {
+            try {
+                MavenService.installPlugin(config.projectPath(), plugin);
+            } catch (Exception e) {
+                throw new RuntimeException("Failed to update pom.xml: " + e.getMessage(), e);
+            }
+            rebind();
+        });
+    }
+
+    /** Removes {@code groupId:artifactId} from the pom — the mirror of {@link #installPlugin}. */
+    public CompletableFuture<Void> removePlugin(String groupId, String artifactId) {
+        return CompletableFuture.runAsync(() -> {
+            try {
+                MavenService.removePlugin(config.projectPath(), groupId, artifactId);
+            } catch (Exception e) {
+                throw new RuntimeException("Failed to update pom.xml: " + e.getMessage(), e);
+            }
+            rebind();
+        });
+    }
+
+    /**
+     * Re-resolve, re-bind the plugins, re-index, announce — everything that follows a pom write.
+     *
+     * <p>One copy, because three callers had grown it: a wrong answer here is a project whose editor is
+     * bound to the classpath it had before the edit, which looks exactly like the edit not having happened.
+     */
+    private void rebind() {
+        List<String> classpath = MavenService.resolveClasspath(config.projectPath());
+        state.setResolvedClasspath(classpath);
+        PluginHost.bind(classpath);
+        typeIndex.refresh(classpath);
+        eventBus.publish(new LibrariesChangedEvent(currentLibraries()));
+    }
+
+    /**
      * The BotMaker SDK version currently declared in the project pom, or {@code ""} when it declares none.
      *
      * <p>Blank rather than {@code Optional} because of where it goes: straight back into
@@ -67,14 +124,9 @@ public final class LibraryService {
                 throw new RuntimeException("Failed to update pom.xml: " + e.getMessage(), e);
             }
 
-            List<String> classpath = MavenService.resolveClasspath(config.projectPath());
-            state.setResolvedClasspath(classpath);
             // The SDK pin may have just moved, so the plugins answering for this project have to move with
             // it — a palette built from the previous jar would offer members the new one may not have.
-            PluginHost.bind(classpath);
-            typeIndex.refresh(classpath);
-
-            eventBus.publish(new LibrariesChangedEvent(userLibs));
+            rebind();
         });
     }
 
@@ -94,13 +146,6 @@ public final class LibraryService {
      * listener that reacts to the palette moving has to react to this too.
      */
     public CompletableFuture<Void> reloadPlugins() {
-        return CompletableFuture.runAsync(() -> {
-            List<String> classpath = MavenService.resolveClasspath(config.projectPath());
-            state.setResolvedClasspath(classpath);
-            PluginHost.bind(classpath);
-            typeIndex.refresh(classpath);
-
-            eventBus.publish(new LibrariesChangedEvent(currentLibraries()));
-        });
+        return CompletableFuture.runAsync(this::rebind);
     }
 }

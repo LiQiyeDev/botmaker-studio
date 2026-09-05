@@ -85,10 +85,17 @@ public class ManageLibrariesDialog {
         stage.initModality(Modality.APPLICATION_MODAL);
         stage.setTitle("Manage Libraries");
 
-        // The pinned SDK row is always first, followed by the user libraries.
-        UserLibrary sdkRow = new UserLibrary(
-                MavenService.SDK_GROUP_ID, MavenService.SDK_ARTIFACT_ID, libraryService.currentSdkVersion());
-        libraries.add(sdkRow);
+        // The pinned SDK row is first — WHEN THE POM DECLARES ONE. It was added unconditionally until
+        // 2026-09-05, versioned from currentSdkVersion(), which has answered "" for a pom naming no SDK
+        // since blank projects stopped pinning one (2026-09-04). So a blank project's Manage Libraries
+        // listed a botmaker-sdk it does not have, at no version, and offered to re-version it. Saving was
+        // harmless — writeUserLibraries treats a blank version as "pin nothing, add nothing" — which is
+        // exactly why nobody noticed: the dialog was the only thing that believed it.
+        String sdkVersion = libraryService.currentSdkVersion();
+        if (!sdkVersion.isBlank()) {
+            libraries.add(new UserLibrary(
+                    MavenService.SDK_GROUP_ID, MavenService.SDK_ARTIFACT_ID, sdkVersion));
+        }
         libraries.addAll(libraryService.currentLibraries());
 
         VBox root = new VBox(12);
@@ -134,7 +141,11 @@ public class ManageLibrariesDialog {
 
         Label heading = new Label("Project libraries");
         heading.setStyle("-fx-font-weight: bold;");
-        Label hint = new Label("Double-click a version to change it. The BotMaker SDK is pinned and cannot be removed.");
+        // "if this project has one" rather than a flat claim: a project that names no plugin has no SDK row
+        // at all, and a sentence about a row that is not on screen reads as a fault in the dialog.
+        Label hint = new Label("Double-click a version to change it. The BotMaker SDK, if this project has"
+                + " one, is pinned and cannot be removed here — use Manage Plugins.");
+        hint.setWrapText(true);
         hint.setStyle("-fx-font-size: 11px; -fx-text-fill: gray;");
         VBox box = new VBox(6, heading, table, hint, tableButtons);
         VBox.setVgrow(table, Priority.ALWAYS);

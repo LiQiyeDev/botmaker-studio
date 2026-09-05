@@ -6,6 +6,34 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-09-05 — Manage Plugins and Manage Libraries read the pom that actually exists.** Three defects, one
+  root: the two dialogs each believed something the project's `pom.xml` did not say.
+  - **A plugin already installed still read *Install*.** `isInstalledIn` was asked against
+    `LibraryService.currentLibraries()` — `readUserLibraries`, *every dependency that is not built in* — and
+    `botmaker-sdk` is built in, so the one plugin that exists was invisible to the check by construction.
+    Pressing the button again appended a **second** `botmaker-sdk`, because `writeUserLibraries` keeps the
+    pom's built-ins *and* appends the list it is handed. New `MavenService.readDeclaredLibraries` answers the
+    other question (*what does this pom declare*), and `LibraryService.declaredLibraries()` is what the dialog
+    asks now.
+  - **Installing the SDK now declares what its plugin half needs, and this is the one that was silent.** A
+    blank pom plus one `botmaker-sdk` line gave the project the SDK jar and no widget toolkit: the SDK marks
+    the toolkit, JavaFX, Javalin and ZXing `optional` so a headless bot links none of them, and **`optional`
+    is not transitive**. `SdkPlugin` could not resolve `AbstractStudioPlugin`, `ServiceLoader` failed,
+    `PluginLoader` caught it (a classpath with no plugin is an ordinary state), and the user got an empty
+    palette, no statement menu and one line on stderr. `MavenService.installPlugin`/`removePlugin` edit the
+    pom in place and, **for the SDK alone**, add and take back the five `provided` entries — derived from
+    `BOT_DEPENDENCIES` rather than listed again. The rule is the platform's own: *whoever puts a plugin on a
+    classpath supplies what that plugin needs*. A plugin from `botmaker-plugin-archetype` declares its toolkit
+    at `compile`, so it is transitive and the arm never fires for it. This is the 2026-08-28 defect one layer
+    out — it was Studio's own classpath then, it is every user's project now.
+  - **Manage Libraries listed a `botmaker-sdk` a blank project does not have**, at no version, and offered to
+    re-version it. The row was added unconditionally; it is conditional on `currentSdkVersion()` now. Saving
+    was harmless (`writeUserLibraries` treats a blank version as *pin nothing, add nothing*), which is exactly
+    why nobody noticed: the dialog was the only thing that believed it.
+  - `LibraryService`'s three writers share one `rebind()` — resolve, `PluginHost.bind`, re-index, announce.
+    Five new cases in `MavenServiceSdkTest`, including that installing twice leaves one dependency and that a
+    non-SDK plugin gets no companions.
+
 - **2026-09-04 — a blank project names no plugin.** `MavenService.DEFAULT_DEPENDENCIES` splits into
   `BLANK_DEPENDENCIES` (junit-jupiter, and nothing else) and `BOT_DEPENDENCIES` (the nine, kept and unused by
   creation); `blankPomXml`/`botPomXml`/`writeBlankPom` name which shape they mean. Until now *Blank* meant a
