@@ -27,6 +27,17 @@ Sections are `## [x.y.z] — YYYY-MM-DD`, newest first.
 - ***Manage Libraries* no longer lists a BotMaker SDK your project does not have.** A blank project showed
   an SDK row with an empty version and offered to change it.
 
+### Added
+
+- **The `botmaker` command comes with Studio on Linux, and Studio keeps it current.** The `.deb` and `.rpm`
+  now require it, so installing Studio installs the command-line tool from the same signed repository; and
+  **Help ▸ Update Command-Line Tool…** checks its latest release and upgrades it through your package
+  manager, behind one authorisation prompt that shows you the command first. Studio's own version does not
+  have to move for a newer command to be offered. Note that a package file downloaded and installed **by
+  hand**, without that repository configured, will now report an unresolved `botmaker` dependency — register
+  the repository (`packaging/linux/install.sh`) or install `botmaker` first. Windows and macOS are unchanged
+  and show no such menu entry.
+
 ### Changed
 
 - ***New Project ▸ Start from* leads with the published templates.** *Base* was doing the same job as

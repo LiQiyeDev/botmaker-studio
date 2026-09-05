@@ -459,6 +459,14 @@ public class MenuBarManager {
                 studioRepoItem, sdkRepoItem, new SeparatorMenuItem(),
                 reportIssueItem, diagnosticsItem, checkUpdatesItem, aboutItem);
 
+        // The `botmaker` command is a package on Linux and nothing at all on Windows or macOS, so the entry is
+        // not merely disabled there — it is absent, because every command it could offer would fail.
+        if (com.botmaker.studio.services.CliUpdateService.isSupported()) {
+            MenuItem cliUpdateItem = new MenuItem("Update Command-Line Tool…");
+            cliUpdateItem.setOnAction(e -> checkForCliUpdate());
+            helpMenu.getItems().add(helpMenu.getItems().indexOf(aboutItem), cliUpdateItem);
+        }
+
         // Every value editor on one screen, with what each reads back. A developer's instrument, not a
         // feature: gated on the same switch that decides whether ~/.m2 snapshots are offered, so a packaged
         // build never grows a menu entry for it.
@@ -493,6 +501,52 @@ public class MenuBarManager {
                 return;
             }
             downloadAndInstall(service, update);
+        }));
+    }
+
+    /**
+     * Checks whether the {@code botmaker} command-line tool is behind its latest release and, if the user
+     * agrees, upgrades it through the package manager under one polkit prompt.
+     *
+     * <p>The command is shown before it is authorised, and it is run off the FX thread because {@code pkexec}
+     * blocks until the user answers the prompt and the transaction finishes.
+     */
+    private void checkForCliUpdate() {
+        com.botmaker.studio.services.CliUpdateService service =
+                new com.botmaker.studio.services.CliUpdateService();
+        service.checkForUpdate().thenAccept(opt -> javafx.application.Platform.runLater(() -> {
+            if (opt.isEmpty()) {
+                String installed = service.installedVersion();
+                showInfo("The command-line tool is up to date",
+                        installed.isBlank()
+                                ? "No newer release of the botmaker command was found."
+                                : "botmaker " + installed + " is the latest version.");
+                return;
+            }
+            var update = opt.get();
+            String question = update.isFirstInstall()
+                    ? "The botmaker command is not installed. Install " + update.tag() + " now?"
+                    : "botmaker " + update.tag() + " is available (you have " + update.installed()
+                            + ").\n\nUpgrade it now?";
+            String command = com.botmaker.studio.services.CliUpdateService.upgradeCommand();
+            if (!confirm("Command-line tool", question + "\n\nThis runs, as root:\n  " + command)) {
+                return;
+            }
+            java.util.concurrent.CompletableFuture.runAsync(() -> {
+                try {
+                    service.runUpgrade();
+                } catch (Exception ex) {
+                    throw new java.util.concurrent.CompletionException(ex);
+                }
+            }).whenComplete((v, ex) -> javafx.application.Platform.runLater(() -> {
+                if (ex != null) {
+                    showError("Upgrade failed", ex.getCause() != null
+                            ? ex.getCause().getMessage() : ex.getMessage());
+                } else {
+                    showInfo("Command-line tool updated",
+                            "botmaker " + service.installedVersion() + " is installed.");
+                }
+            }));
         }));
     }
 

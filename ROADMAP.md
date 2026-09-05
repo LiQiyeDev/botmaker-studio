@@ -6,6 +6,30 @@ whenever work lands here (see CLAUDE.md → Roadmap).
 
 ## Completed
 
+- **2026-09-05 — Studio brings the `botmaker` command with it, and keeps it current (Linux only).** Both
+  `build-deb` and `build-rpm` now name `botmaker` in `--linux-package-deps`, and `services/CliUpdateService`
+  offers the upgrade from Help ▸ *Update Command-Line Tool…*.
+  - **No Maven dependency on `botmaker-cli`, and none is coming.** Studio and the CLI are two hosts of one
+    platform; what they share lives in `botmaker-studio-api` and `botmaker-plugin-host`. So there is no
+    version to skew: the service knows the CLI as a package name, a `--version` line and a GitHub tag,
+    nothing more. Reading the tag from `LiQiyeDev/botmaker-cli` rather than from a constant is what lets a
+    Studio that has *not* been re-released still offer a newer CLI, which was the maintainer's requirement.
+  - **`botmaker` is a package name in both packages**, unlike the rpm's soname capabilities — it is ours, from
+    the same signed repository `packaging/linux/install.sh` registers, and it provides no library. The trade
+    is recorded in both pom comments: a `.rpm` or `.deb` installed **by hand**, with that repository absent,
+    now fails to resolve. That is intended; the repository is the supported install path and is what
+    `UpdateService`'s own dnf/apt path already goes through.
+  - **Nothing privileged runs silently.** `upgradeCommand()` is shown in the confirmation dialog before
+    `runUpgrade()` hands it to `pkexec`, the same shape as `UpdateService` handing an installer to the OS.
+    `dnf upgrade -y botmaker` / `apt-get install -y --only-upgrade botmaker`, each falling back to a plain
+    install so an absent CLI is repaired by the same path.
+  - **Absent is the same offer as out of date, with a different sentence.** `SemVer.isGreater` already treats
+    a blank baseline as no lower bound, so the "not installed" arm needed no branch of its own — only
+    `AvailableCliUpdate.isFirstInstall()` for the wording.
+  - **The menu item is absent, not disabled, off Linux.** `isSupported()` requires Linux, `dnf`-or-`apt-get`
+    and `pkexec`; a machine failing any of those would be offered a command that cannot work, and an entry
+    that fails is worse than one that is not there — the same judgement K3 applied to 🗂 Resources.
+
 - **2026-09-05 — *Start from* leads with the gallery's templates; Blank is the offline fallback.**
   `botmaker-base` is what Blank used to be, so listing both offered one thing twice under two names.
   `loadTemplates` **replaces** the blank row when any template arrives, selecting the first, and leaves it

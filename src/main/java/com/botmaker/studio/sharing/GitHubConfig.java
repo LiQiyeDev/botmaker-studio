@@ -26,6 +26,18 @@ public final class GitHubConfig {
     public static final String STUDIO_OWNER = "LiQiyeDev";
     public static final String STUDIO_REPO = "BotMaker-Studio";
 
+    /**
+     * The {@code botmaker} command-line tool's repo, whose latest release tag is the version
+     * {@link com.botmaker.studio.services.CliUpdateService} compares the installed CLI against.
+     *
+     * <p>A repo name rather than a Maven coordinate on purpose: Studio does not depend on {@code botmaker-cli}
+     * and must not — they are two hosts of one platform, and what they share lives in {@code botmaker-studio-api}
+     * and {@code botmaker-plugin-host}. Reading the tag here is what lets a Studio that has not been
+     * re-released still offer a newer CLI.
+     */
+    public static final String CLI_OWNER = "LiQiyeDev";
+    public static final String CLI_REPO = "botmaker-cli";
+
     /** Umbrella repo that receives in-app bug reports (Help ▸ Report Issue…). */
     public static final String ISSUE_OWNER = "LiQiyeDev";
     public static final String ISSUE_REPO = "botmaker";

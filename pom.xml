@@ -749,10 +749,21 @@
                                          OCR natives (libtesseract.so + libleptonica.so.6) ship inside a jar rather
                                          than borrowing the host's copy; that jar was shared's until SDK 1.2.0 moved
                                          com.botmaker.shared.ocr into botmaker-sdk, so read the native staging in
-                                         ../botmaker-sdk/pom.xml. -->
+                                         ../botmaker-sdk/pom.xml.
+
+                                         The trailing `botmaker` is NOT part of the GUI stack: it is the
+                                         command-line tool, pulled in so a Studio install brings it. It is a
+                                         package NAME in both the deb and the rpm (unlike the rpm's soname
+                                         capabilities below) because it is ours, published to the same signed
+                                         repository packaging/linux/install.sh registers. Consequence, and it
+                                         is the intended trade: a package installed BY HAND, from a downloaded
+                                         file with that repository absent, now fails to resolve — the repo is
+                                         the supported install path, and UpdateService's own dnf/apt path goes
+                                         through it. Studio declares no Maven dependency on botmaker-cli and
+                                         must not; see services/CliUpdateService. -->
                                     <additionalOptions>
                                         <option>--linux-package-deps</option>
-                                        <option>libgtk-3-0t64 | libgtk-3-0, libx11-6, libxtst6, libxi6, libxxf86vm1, libgl1, libfontconfig1</option>
+                                        <option>libgtk-3-0t64 | libgtk-3-0, libx11-6, libxtst6, libxi6, libxxf86vm1, libgl1, libfontconfig1, botmaker</option>
                                     </additionalOptions>
                                     <linuxShortcut>true</linuxShortcut>
                                     <linuxMenuGroup>Development</linuxMenuGroup>
@@ -804,10 +815,16 @@
                                          OCR natives (libtesseract.so + libleptonica.so.6) ship inside a jar rather
                                          than borrowing the host's copy; that jar was shared's until SDK 1.2.0 moved
                                          com.botmaker.shared.ocr into botmaker-sdk, so read the native staging in
-                                         ../botmaker-sdk/pom.xml. -->
+                                         ../botmaker-sdk/pom.xml.
+
+                                         `botmaker` is the one entry here that is a package NAME rather than a
+                                         soname capability, and it has to be: it is our own CLI, published to
+                                         the same signed repository as this package, and it provides no
+                                         library. See build-deb's note for the trade it buys — a hand-installed
+                                         .rpm without that repository configured will now fail to resolve. -->
                                     <additionalOptions>
                                         <option>--linux-package-deps</option>
-                                        <option>libgtk-3.so.0()(64bit), libX11.so.6()(64bit), libXtst.so.6()(64bit), libXi.so.6()(64bit), libXxf86vm.so.1()(64bit), libGL.so.1()(64bit), libfontconfig.so.1()(64bit)</option>
+                                        <option>libgtk-3.so.0()(64bit), libX11.so.6()(64bit), libXtst.so.6()(64bit), libXi.so.6()(64bit), libXxf86vm.so.1()(64bit), libGL.so.1()(64bit), libfontconfig.so.1()(64bit), botmaker</option>
                                     </additionalOptions>
                                     <linuxShortcut>true</linuxShortcut>
                                     <linuxMenuGroup>Development</linuxMenuGroup>
